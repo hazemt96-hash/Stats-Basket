@@ -18,10 +18,15 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const blank = () => Object.fromEntries(KEYS.map(k => [k, 0]));
 
 function freshDb() {
-  return { teams: [{ id: uid(), name: "Féminines", players: [] }, { id: uid(), name: "Masculins", players: [] }], matches: [] };
+  return { teams: [{ id: uid(), name: "Féminines", cat: "F", players: [] }, { id: uid(), name: "Masculins", cat: "M", players: [] }], matches: [] };
+}
+const CATS = [["F", "Féminines"], ["M", "Masculins"]];
+function migrate(data) {
+  data.teams.forEach(t => { if (!t.cat) t.cat = /masc/i.test(t.name) ? "M" : "F"; });
+  return data;
 }
 function loadDb() {
-  try { const raw = localStorage.getItem(LOCAL_KEY); if (raw) return JSON.parse(raw); } catch (e) { /* données illisibles : on repart à vide */ }
+  try { const raw = localStorage.getItem(LOCAL_KEY); if (raw) return migrate(JSON.parse(raw)); } catch (e) { /* données illisibles : on repart à vide */ }
   return freshDb();
 }
 let db = loadDb();
@@ -29,7 +34,7 @@ function save() {
   try { localStorage.setItem(LOCAL_KEY, JSON.stringify(db)); }
   catch (e) { toast("Mémoire pleine : exporte une sauvegarde"); }
 }
-const ui = { view: "home", teamId: db.teams[0].id, matchId: null, sel: null, qt: false, recap: "avg", confirm: null, edit: null };
+const ui = { view: "home", cat: db.teams[0] ? db.teams[0].cat : "F", teamId: db.teams[0] ? db.teams[0].id : null, matchId: null, sel: null, qt: false, recap: "avg", confirm: null, edit: null };
 const team = () => db.teams.find(t => t.id === ui.teamId);
 const match = () => db.matches.find(m => m.id === ui.matchId);
 const teamOf = m => db.teams.find(t => t.id === m.teamId);
@@ -242,6 +247,37 @@ function addPlayer() {
   save(); render();
   document.getElementById("first").focus();
 }
+function selectCat(cat) {
+  ui.cat = cat;
+  const first = db.teams.find(t => t.cat === cat);
+  ui.teamId = first ? first.id : null;
+}
+function addTeam() {
+  const name = document.getElementById("tname").value.trim(), cat = document.getElementById("tcat").value;
+  if (!name) { toast("Indique le nom de l'équipe"); return; }
+  if (db.teams.some(t => t.cat === cat && t.name.toLowerCase() === name.toLowerCase())) { toast("Cette équipe existe déjà"); return; }
+  const t = { id: uid(), name, cat, players: [] };
+  db.teams.push(t);
+  ui.cat = cat; ui.teamId = t.id; ui.view = "home";
+  save(); render(); toast("Équipe créée");
+}
+function renameTeam(id) {
+  const t = db.teams.find(x => x.id === id), name = document.getElementById("tn-" + id).value.trim();
+  if (!name) { toast("Indique un nom"); return; }
+  if (db.teams.some(x => x !== t && x.cat === t.cat && x.name.toLowerCase() === name.toLowerCase())) { toast("Cette équipe existe déjà"); return; }
+  t.name = name;
+  save(); render(); toast("Équipe renommée");
+}
+function askDeleteTeam(id) {
+  const t = db.teams.find(x => x.id === id), n = db.matches.filter(m => m.teamId === id).length;
+  ui.confirm = { text: `Supprimer ${t.name}, son effectif et ses ${n} match(s) ?`, yes: () => {
+    db.teams = db.teams.filter(x => x !== t);
+    db.matches = db.matches.filter(m => m.teamId !== id);
+    if (ui.teamId === id) selectCat(ui.cat);
+    save();
+  } };
+  render();
+}
 function saveMatchForm() {
   const t = team(), m = ui.edit ? db.matches.find(x => x.id === ui.edit) : null;
   const opponent = m ? m.opponent : document.getElementById("opp").value.trim();
@@ -278,6 +314,7 @@ function openMatch(id) {
   ui.matchId = id; ui.view = "match";
   const m = match();
   ui.teamId = m.teamId;
+  ui.cat = teamOf(m).cat;
   ui.sel = m.roster[0].pid;
   resumeClock(m);
   render();
@@ -364,7 +401,7 @@ function restoreFile(file) {
     try {
       const data = JSON.parse(reader.result);
       if (!Array.isArray(data.teams) || !Array.isArray(data.matches)) throw new Error("format");
-      db = data; ui.teamId = db.teams[0].id; save(); render(); toast("Sauvegarde restaurée");
+      db = migrate(data); selectCat(db.teams[0] ? db.teams[0].cat : "F"); save(); render(); toast("Sauvegarde restaurée");
     } catch (e) { toast("Ce fichier n'est pas une sauvegarde valide"); }
   };
   reader.readAsText(file);
@@ -372,13 +409,25 @@ function restoreFile(file) {
 
 /* ---------- Écrans ---------- */
 function viewHome() {
-  const t = team(), ms = db.matches.filter(m => m.teamId === t.id).sort((a, b) => b.date.localeCompare(a.date));
-  return `<h1>Stats Basket</h1>
-  <div class="tabs">${db.teams.map(x => `<button data-a="team" data-id="${x.id}" aria-pressed="${x.id === t.id}">${esc(x.name)}</button>`).join("")}</div>
+  const t = team(), inCat = db.teams.filter(x => x.cat === ui.cat);
+  const ms = t ? db.matches.filter(m => m.teamId === t.id).sort((a, b) => b.date.localeCompare(a.date)) : [];
+  const backupCard = `<div class="card"><h2>Sauvegarde</h2><p class="muted">Tes données sont sur ce téléphone. Exporte une sauvegarde régulièrement.</p><div class="row"><button class="btn grow" data-a="backup">Sauvegarder</button><label class="btn grow" style="display:grid;place-items:center">Restaurer<input type="file" id="restore" accept=".json,application/json" hidden></label></div></div>`;
+  const tabs = `<h1>Stats Basket</h1>
+  <div class="tabs">${CATS.map(([c, n]) => `<button data-a="cat" data-n="${c}" aria-pressed="${c === ui.cat}">${n}</button>`).join("")}</div>
+  ${inCat.length > 1 ? `<div class="tabs" style="grid-auto-flow:row;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));margin-top:6px">${inCat.map(x => `<button data-a="team" data-id="${x.id}" aria-pressed="${t && x.id === t.id}">${esc(x.name)}</button>`).join("")}</div>` : ""}`;
+  if (!t) return `${tabs}<div class="card"><p class="muted">Aucune équipe dans cette catégorie.</p></div><button class="btn main block" data-a="teams">Gérer les équipes</button>${backupCard}`;
+  return `${tabs}
+  ${inCat.length === 1 ? `<p class="muted" style="margin:8px 2px 0">Équipe : ${esc(t.name)}</p>` : ""}
   <button class="btn main block" data-a="new">Nouveau match</button>
   <div class="row"><button class="btn block grow" data-a="roster">Effectif (${t.players.filter(p => !p.archived).length})</button><button class="btn block grow" data-a="recap">Récap saison</button></div>
+  <button class="btn block" data-a="teams">Gérer les équipes</button>
   <div class="card"><h2>Matchs</h2>${ms.length ? ms.map(m => { const d = derive(teamTotal(m)); return `<div class="item"><button class="open" data-a="open" data-id="${m.id}"><b>${esc(m.opponent)}</b><span class="muted num">${m.date.split("-").reverse().join("/")} · ${d.pts}-${oppTotal(m)}</span></button><button class="btn small" data-a="xls" data-id="${m.id}">Excel</button><button class="btn small danger" data-a="delmatch" data-id="${m.id}">Suppr.</button></div>`; }).join("") : `<p class="muted">Aucun match pour le moment. Ajoute ton effectif, puis crée un match.</p>`}</div>
-  <div class="card"><h2>Sauvegarde</h2><p class="muted">Tes données sont sur ce téléphone. Exporte une sauvegarde régulièrement.</p><div class="row"><button class="btn grow" data-a="backup">Sauvegarder</button><label class="btn grow" style="display:grid;place-items:center">Restaurer<input type="file" id="restore" accept=".json,application/json" hidden></label></div></div>`;
+  ${backupCard}`;
+}
+function viewTeams() {
+  return `<div class="top"><button class="btn small" data-a="home">Retour</button><strong>Gérer les équipes</strong></div>
+  <div class="card"><h2>Nouvelle équipe</h2><label class="f" for="tname">Nom</label><input id="tname" type="text" autocomplete="off"><label class="f" for="tcat">Catégorie</label><select id="tcat" style="background:var(--bg);border:1px solid var(--line);border-radius:8px;height:44px;padding:0 10px;font-size:16px;width:100%">${CATS.map(([c, n]) => `<option value="${c}"${c === ui.cat ? " selected" : ""}>${n}</option>`).join("")}</select><button class="btn main block" data-a="addteam">Créer l'équipe</button></div>
+  ${CATS.map(([c, n]) => { const list = db.teams.filter(t => t.cat === c); return `<div class="card"><h2>${n}</h2>${list.length ? list.map(t => `<div class="item"><input id="tn-${t.id}" class="grow" type="text" aria-label="Nom de l'équipe" value="${esc(t.name)}"><button class="btn small" data-a="renteam" data-id="${t.id}">OK</button><button class="btn small danger" data-a="delteam" data-id="${t.id}">Suppr.</button></div>`).join("") : `<p class="muted">Aucune équipe.</p>`}</div>`; }).join("")}`;
 }
 function viewRoster() {
   const t = team(), active = t.players.filter(p => !p.archived);
@@ -442,7 +491,7 @@ function viewRecap() {
   </tbody></table></div></div><p class="muted">Un joueur absent n'a pas de 0 : seuls ses matchs joués comptent. Les % sont calculés sur les totaux de la saison.</p>`;
 }
 function render() {
-  const screens = { home: viewHome, roster: viewRoster, form: viewMatchForm, match: viewMatch, log: viewLog, recap: viewRecap };
+  const screens = { home: viewHome, teams: viewTeams, roster: viewRoster, form: viewMatchForm, match: viewMatch, log: viewLog, recap: viewRecap };
   const dialog = ui.confirm ? `<div class="overlay"><div class="card dialog"><p>${esc(ui.confirm.text)}</p><div class="row"><button class="btn grow" data-a="no">Annuler</button><button class="btn main grow" data-a="yes">Confirmer</button></div></div></div>` : "";
   document.getElementById("app").innerHTML = screens[ui.view]() + dialog;
 }
@@ -457,6 +506,11 @@ function toast(text) {
 /* ---------- Actions ---------- */
 const actions = {
   team: b => { ui.teamId = b.dataset.id; render(); },
+  cat: b => { selectCat(b.dataset.n); render(); },
+  teams: () => { ui.view = "teams"; render(); },
+  addteam: addTeam,
+  renteam: b => renameTeam(b.dataset.id),
+  delteam: b => askDeleteTeam(b.dataset.id),
   home: () => { ui.view = "home"; render(); },
   new: () => { ui.edit = null; ui.view = "form"; render(); },
   roster: () => { ui.view = "roster"; render(); },
