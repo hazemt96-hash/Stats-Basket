@@ -34,7 +34,11 @@ function save() {
   try { localStorage.setItem(LOCAL_KEY, JSON.stringify(db)); }
   catch (e) { toast("Mémoire pleine : exporte une sauvegarde"); }
 }
-const ui = { view: "home", cat: db.teams[0] ? db.teams[0].cat : "F", teamId: db.teams[0] ? db.teams[0].id : null, matchId: null, sel: null, qt: false, recap: "avg", confirm: null, edit: null };
+function savedLayout() {
+  try { const v = localStorage.getItem("stats-basket-layout"); if (["complet-v", "compact-v", "complet-h", "compact-h"].includes(v)) return v; } catch (e) { /* valeur par défaut */ }
+  return "complet-v";
+}
+const ui = { view: "home", cat: db.teams[0] ? db.teams[0].cat : "F", teamId: db.teams[0] ? db.teams[0].id : null, matchId: null, sel: null, qt: false, recap: "avg", confirm: null, edit: null, drawer: false, layout: savedLayout() };
 const team = () => db.teams.find(t => t.id === ui.teamId);
 const match = () => db.matches.find(m => m.id === ui.matchId);
 const teamOf = m => db.teams.find(t => t.id === m.teamId);
@@ -107,8 +111,7 @@ function updateClocks() {
   const m = match();
   if (!m) return;
   document.querySelectorAll("[data-min]").forEach(e => { e.textContent = fmtClock(playerTotal(m, e.dataset.min).min); });
-  const c = document.querySelector("[data-clock]");
-  if (c) c.textContent = fmtClock(remain(m));
+  document.querySelectorAll("[data-clock]").forEach(c => { c.textContent = fmtClock(remain(m)); });
 }
 function resumeClock(m) {
   if (m.running && Date.now() - m.last > 600000) m.running = false;
@@ -152,6 +155,7 @@ function quarterForRemoval(m, pid, delta) {
 }
 function tapShot(id, kind, d) {
   const m = match(), pid = ui.sel, s = SHOTS.find(x => x.id === id), t = playerTotal(m, pid);
+  if (d > 0 && !m.court.includes(pid)) return;
   if (d < 0 && (kind === "made" ? t[s.m] : t[s.a] - t[s.m]) <= 0) return;
   const delta = kind === "made" ? { [s.m]: d, [s.a]: d } : { [s.a]: d };
   const q = d > 0 ? m.qi : quarterForRemoval(m, pid, delta);
@@ -162,6 +166,7 @@ function tapShot(id, kind, d) {
 }
 function tapCounter(k, d) {
   const m = match(), pid = ui.sel, t = playerTotal(m, pid);
+  if (d > 0 && !m.court.includes(pid)) return;
   if (d < 0 && (t[k] <= 0 || (k === "reb" && t.reb <= t.orb))) return;
   const delta = { [k]: d };
   if (k === "orb") delta.reb = d;
@@ -196,7 +201,10 @@ function deleteLog(id) {
 function toggleCourt(pid) {
   const m = match();
   accrue(m);
-  if (m.court.includes(pid)) m.court = m.court.filter(x => x !== pid);
+  if (m.court.includes(pid)) {
+    m.court = m.court.filter(x => x !== pid);
+    if (ui.sel === pid && m.court.length) ui.sel = m.court[0];
+  }
   else if (m.court.length >= 5) { toast("5 joueurs déjà sur le terrain. Retires-en un."); return; }
   else m.court.push(pid);
   save(); render();
@@ -445,34 +453,58 @@ function viewMatchForm() {
   <div class="card"><h2>Coche les présents et entre leur numéro du jour</h2>${list.length ? list.map(p => { const r = m && rosterOf(m, p.id); return `<div class="check"><input type="checkbox" id="c-${p.id}" aria-label="${esc(fullName(p))} présent"${r ? " checked" : ""}><label for="c-${p.id}">${esc(fullName(p))}</label><input id="n-${p.id}" inputmode="numeric" maxlength="3" aria-label="Numéro de ${esc(fullName(p))}" value="${r ? r.no : ""}"></div>`; }).join("") : `<p class="muted">Ajoute d'abord tes joueurs dans Effectif.</p>`}</div>
   <button class="btn main block" data-a="savematch">${m ? "Enregistrer" : "Créer le match"}</button>`;
 }
-function stepper(act, value, cls, name, min) {
-  return `<div class="stepper"><button data-a="${act}" data-d="-1" aria-label="Retirer ${name}"${value <= (min || 0) ? " disabled" : ""}>−</button><output>${value}</output><button class="${cls}" data-a="${act}" data-d="1" aria-label="Ajouter ${name}">+</button></div>`;
+function stepper(act, value, cls, name, min, locked) {
+  return `<div class="stepper"><button data-a="${act}" data-d="-1" aria-label="Retirer ${name}"${value <= (min || 0) ? " disabled" : ""}>−</button><output>${value}</output><button class="${cls}" data-a="${act}" data-d="1" aria-label="Ajouter ${name}"${locked ? " disabled" : ""}>+</button></div>`;
+}
+const LAYOUTS = [["complet-v", "Complet vertical"], ["compact-v", "Compact vertical"], ["complet-h", "Complet horizontal"], ["compact-h", "Compact horizontal"]];
+const SHORT = { ast: "Passes", reb: "Rebonds", orb: "Reb. off.", stl: "Interc.", blk: "Contres", tov: "B. perdues", pf: "Fautes" };
+function setLayout(id) {
+  ui.layout = id;
+  ui.drawer = false;
+  try { localStorage.setItem("stats-basket-layout", id); } catch (e) { /* non bloquant */ }
+  render();
+  if (id.endsWith("-h") && window.innerWidth < window.innerHeight) toast("Tourne ton téléphone en largeur");
 }
 function viewMatch() {
-  const m = match(), sel = rosterOf(m, ui.sel) || m.roster[0];
+  const m = match(), compact = ui.layout.startsWith("compact"), land = ui.layout.endsWith("-h");
+  if (compact && !m.court.includes(ui.sel) && m.court.length) ui.sel = m.court[0];
+  const sel = rosterOf(m, ui.sel) || m.roster[0];
   ui.sel = sel.pid;
+  const bench = !m.court.includes(ui.sel);
   const v = derive(playerTotal(m, ui.sel)), q = derive(m.stats[ui.sel][m.qi]), t = derive(teamTotal(m)), o = oppTotal(m), poss = possessions(t), p = person(m, ui.sel);
   const item = (n, x) => `<span><b>${x}</b> ${n}</span>`;
-  const qRows = QS.map((qn, i) => {
-    const d = derive(teamQuarter(m, i));
-    return d.pts || m.opp[i] || d.fga || d.fta || d.reb || d.ast || d.tov || i === m.qi ? `<tr><th>${qn}</th><td>${d.pts}-${m.opp[i]}</td><td>${d.fgm}/${d.fga}</td><td>${d.tpm}/${d.tpa}</td><td>${d.ftm}/${d.fta}</td><td>${d.reb}</td><td>${d.ast}</td><td>${d.tov}</td><td>${d.pf}</td></tr>` : "";
-  }).join("");
-  return `<div class="top"><button class="btn small" data-a="leave">Matchs</button><div class="score grow">${t.pts} – ${o}<small>${esc(m.opponent)}</small></div><button class="btn small" data-a="undo"${m.log.length ? "" : " disabled"}>Annuler</button></div>
-  <div class="opprow"><span>Adversaire</span><button data-a="opp" data-n="-1" aria-label="Retirer 1 point adverse"${o > 0 ? "" : " disabled"}>−</button><button class="p" data-a="opp" data-n="1">+1</button><button class="p" data-a="opp" data-n="2">+2</button><button class="p" data-a="opp" data-n="3">+3</button></div>
-  <div class="players">${m.roster.map(r => { const d = derive(playerTotal(m, r.pid)); return `<button class="player" data-a="sel" data-id="${r.pid}" aria-pressed="${r.pid === ui.sel}"><b>${r.no}</b><span>${esc(person(m, r.pid).first)}</span><span>${d.pts} pts · ${d.pf} f</span><span data-min="${r.pid}">${fmtClock(d.min)}</span></button>`; }).join("")}</div>
-  <div class="qrow">${QS.map((qn, i) => `<button data-a="quarter" data-n="${i}" aria-pressed="${i === m.qi}">${qn}</button>`).join("")}</div>
-  <div class="clockrow"><span class="clockval" data-clock>${fmtClock(remain(m))}</span><button class="${m.running ? "stop" : "start"}" data-a="clock">${m.running ? "Stop" : "Départ"}</button><button class="close" data-a="close">Clore ${QS[m.qi]}</button></div>
-  <div class="adjrow">${[[-60, "−1:00"], [-10, "−10 s"], [-1, "−1 s"], [1, "+1 s"], [10, "+10 s"], [60, "+1:00"]].map(([n, l]) => `<button data-a="adj" data-n="${n}">${l}</button>`).join("")}</div>
-  <div class="courthead"><span>Sur le terrain <b>${m.court.length}/5</b></span>${m.court.length !== 5 ? "<em>Choisis 5 joueurs</em>" : ""}</div>
-  <div class="courtrow">${m.roster.map(r => `<button data-a="court" data-id="${r.pid}" aria-pressed="${m.court.includes(r.pid)}" aria-label="N° ${r.no} sur le terrain">${r.no}</button>`).join("")}</div>
-  <div class="who"><strong>N° ${sel.no} ${esc(fullName(p))}</strong></div>
-  <div class="muted num">${v.pts} pts · +/- ${signed(v.pm)} · ${QS[m.qi]} : ${q.pts} pts</div>
-  <div class="card"><div class="shots"><div></div><div class="head">Réussi</div><div class="head">Raté</div>${SHOTS.map(s => `<div class="label">${s.label}</div>${stepper(`shot:${s.id}:made`, v[s.m], "made", s.label + " réussi")}${stepper(`shot:${s.id}:miss`, Math.max(0, v[s.a] - v[s.m]), "miss", s.label + " raté")}`).join("")}</div>
-  <div class="pct"><span>Tirs ${ratio(v.fgm, v.fga)}</span><span>3 pts ${ratio(v.tpm, v.tpa)}</span><span>LF ${ratio(v.ftm, v.fta)}</span><span>eFG ${pctTxt(eFG(v))}</span><span>TS ${pctTxt(TS(v))}</span></div></div>
-  <div class="others">${COUNTERS.map(([k, n]) => `<div class="card"><h2>${n}</h2>${stepper("stat:" + k, v[k], "count", n, k === "reb" ? v.orb : 0)}</div>`).join("")}</div>
-  <div class="card"><h2>Totaux équipe</h2><div class="teamline">${item("Pas", t.ast)}${item("Reb", t.reb)}${item("Int", t.stl)}${item("Ctr", t.blk)}${item("BP", t.tov)}${item("F", t.pf)}${item("Tirs", ratio(t.fgm, t.fga))}${item("3 pts", ratio(t.tpm, t.tpa))}${item("LF", ratio(t.ftm, t.fta))}${item("eFG", pctTxt(eFG(t)))}${item("TS", pctTxt(TS(t)))}${item("Off", poss > 0 ? (t.pts / poss * 100).toFixed(1) : "-")}${item("Def", poss > 0 ? (o / poss * 100).toFixed(1) : "-")}${item("Net", poss > 0 ? ((t.pts - o) / poss * 100).toFixed(1) : "-")}</div></div>
-  <div class="card"><button class="toggle" data-a="qt">Par quart-temps ${ui.qt ? "▴" : "▾"}</button>${ui.qt ? `<div class="scroll"><table><thead><tr><th></th><th>Score</th><th>Tirs</th><th>3 pts</th><th>LF</th><th>Reb</th><th>Pas</th><th>BP</th><th>F</th></tr></thead><tbody>${qRows}</tbody></table></div>` : ""}</div>
-  <div class="row"><button class="btn block grow" data-a="log">Journal</button><button class="btn block grow" data-a="numbers">Numéros</button><button class="btn block grow" data-a="xls" data-id="${m.id}">Excel</button></div>`;
+  const score = `<div class="score grow">${t.pts} – ${o}<small>${esc(m.opponent)}</small></div>`;
+  const buttons = `<button class="btn small" data-a="drawer">Menu</button><button class="btn small" data-a="undo"${m.log.length ? "" : " disabled"}>Annuler</button>`;
+  const header = land
+    ? `<div class="top"><button class="btn small" data-a="leave">Matchs</button>${buttons}</div>${score}`
+    : `<div class="top"><button class="btn small" data-a="leave">Matchs</button>${score}${buttons}</div>`;
+  const opp = `<div class="opprow"><span>Adversaire</span><button data-a="opp" data-n="-1" aria-label="Retirer 1 point adverse"${o > 0 ? "" : " disabled"}>−</button><button class="p" data-a="opp" data-n="1">+1</button><button class="p" data-a="opp" data-n="2">+2</button><button class="p" data-a="opp" data-n="3">+3</button></div>`;
+  const chip = r => { const d = derive(playerTotal(m, r.pid)); return `<button class="player ${m.court.includes(r.pid) ? "on" : "off"}" data-a="sel" data-id="${r.pid}" aria-pressed="${r.pid === ui.sel}"><b>${r.no}</b><span>${esc(person(m, r.pid).first)}</span><span>${d.pts} pts · ${d.pf} f</span><span data-min="${r.pid}">${fmtClock(d.min)}</span></button>`; };
+  const allChips = `<div class="players">${m.roster.map(chip).join("")}</div>`;
+  const courtChips = `<div class="players five">${m.roster.filter(r => m.court.includes(r.pid)).map(chip).join("")}</div>`;
+  const quarters = `<div class="qrow">${QS.map((qn, i) => `<button data-a="quarter" data-n="${i}" aria-pressed="${i === m.qi}">${qn}</button>`).join("")}</div>`;
+  const startBtn = `<button class="${m.running ? "stop" : "start"}" data-a="clock">${m.running ? "Stop" : "Départ"}</button>`;
+  const clock = `<div class="clockrow"><span class="clockval" data-clock>${fmtClock(remain(m))}</span>${startBtn}<button class="close" data-a="close">Clore ${QS[m.qi]}</button></div>`;
+  const clockLine = `<div class="clockline"><button class="btn small" data-a="drawer">${QS[m.qi]}</button><span class="clockval" data-clock>${fmtClock(remain(m))}</span>${startBtn}</div>`;
+  const adjust = `<div class="adjrow">${[[-60, "−1:00"], [-10, "−10 s"], [-1, "−1 s"], [1, "+1 s"], [10, "+10 s"], [60, "+1:00"]].map(([n, l]) => `<button data-a="adj" data-n="${n}">${l}</button>`).join("")}</div>`;
+  const court = `<div class="courthead"><span>Sur le terrain <b>${m.court.length}/5</b></span>${m.court.length !== 5 ? "<em>Choisis 5 joueurs</em>" : ""}</div><div class="courtrow">${m.roster.map(r => `<button data-a="court" data-id="${r.pid}" aria-pressed="${m.court.includes(r.pid)}" aria-label="N° ${r.no} sur le terrain">${r.no}</button>`).join("")}</div>`;
+  const who = `<div class="who"><strong>N° ${sel.no} ${esc(fullName(p))}</strong></div><div class="muted num">${v.pts} pts · +/- ${signed(v.pm)} · ${QS[m.qi]} : ${q.pts} pts</div>${bench ? `<div class="benchnote">${compact ? "Ouvre Menu pour choisir les 5 joueurs sur le terrain" : "Sur le banc : seules les corrections (−) sont possibles"}</div>` : ""}`;
+  const shots = `<div class="card"><div class="shots"><div></div><div class="head">Réussi</div><div class="head">Raté</div>${SHOTS.map(s => `<div class="label">${s.label}</div>${stepper(`shot:${s.id}:made`, v[s.m], "made", s.label + " réussi", 0, bench)}${stepper(`shot:${s.id}:miss`, Math.max(0, v[s.a] - v[s.m]), "miss", s.label + " raté", 0, bench)}`).join("")}</div><div class="pct"><span>Tirs ${ratio(v.fgm, v.fga)}</span><span>3 pts ${ratio(v.tpm, v.tpa)}</span><span>LF ${ratio(v.ftm, v.fta)}</span><span>eFG ${pctTxt(eFG(v))}</span><span>TS ${pctTxt(TS(v))}</span></div></div>`;
+  const counters = `<div class="others">${COUNTERS.map(([k, n]) => `<div class="card"><h2>${n}</h2>${stepper("stat:" + k, v[k], "count", n, k === "reb" ? v.orb : 0, bench)}</div>`).join("")}</div>`;
+  const tapShots = `<div class="tapshots"><div></div><div class="head">Réussi</div><div class="head">Raté</div>${SHOTS.map(s => `<div class="label">${s.label}</div><button class="tap made" data-a="shot:${s.id}:made" data-d="1" aria-label="${s.label} réussi"${bench ? " disabled" : ""}>+ <b>${v[s.m]}</b></button><button class="tap miss" data-a="shot:${s.id}:miss" data-d="1" aria-label="${s.label} raté"${bench ? " disabled" : ""}>+ <b>${Math.max(0, v[s.a] - v[s.m])}</b></button>`).join("")}</div>`;
+  const tapCounters = `<div class="tapcounters">${COUNTERS.map(([k, n]) => `<button class="tapc" data-a="stat:${k}" data-d="1" aria-label="Ajouter ${n}"${bench ? " disabled" : ""}><span>${SHORT[k]}</span><b>${v[k]}</b></button>`).join("")}</div>`;
+  const totals = `<div class="card"><h2>Totaux équipe</h2><div class="teamline">${item("Pas", t.ast)}${item("Reb", t.reb)}${item("Int", t.stl)}${item("Ctr", t.blk)}${item("BP", t.tov)}${item("F", t.pf)}${item("Tirs", ratio(t.fgm, t.fga))}${item("3 pts", ratio(t.tpm, t.tpa))}${item("LF", ratio(t.ftm, t.fta))}${item("eFG", pctTxt(eFG(t)))}${item("TS", pctTxt(TS(t)))}${item("Off", poss > 0 ? (t.pts / poss * 100).toFixed(1) : "-")}${item("Def", poss > 0 ? (o / poss * 100).toFixed(1) : "-")}${item("Net", poss > 0 ? ((t.pts - o) / poss * 100).toFixed(1) : "-")}</div></div>`;
+  const qRows = QS.map((qn, i) => { const d = derive(teamQuarter(m, i)); return d.pts || m.opp[i] || d.fga || d.fta || d.reb || d.ast || d.tov || i === m.qi ? `<tr><th>${qn}</th><td>${d.pts}-${m.opp[i]}</td><td>${d.fgm}/${d.fga}</td><td>${d.tpm}/${d.tpa}</td><td>${d.ftm}/${d.fta}</td><td>${d.reb}</td><td>${d.ast}</td><td>${d.tov}</td><td>${d.pf}</td></tr>` : ""; }).join("");
+  const quarterTable = `<div class="card"><button class="toggle" data-a="qt">Par quart-temps ${ui.qt ? "▴" : "▾"}</button>${ui.qt ? `<div class="scroll"><table><thead><tr><th></th><th>Score</th><th>Tirs</th><th>3 pts</th><th>LF</th><th>Reb</th><th>Pas</th><th>BP</th><th>F</th></tr></thead><tbody>${qRows}</tbody></table></div>` : ""}</div>`;
+  const footer = `<div class="row"><button class="btn block grow" data-a="log">Journal</button><button class="btn block grow" data-a="numbers">Numéros</button><button class="btn block grow" data-a="xls" data-id="${m.id}">Excel</button></div>`;
+  const layoutPick = `<div class="card"><h2>Affichage</h2><div class="pick">${LAYOUTS.map(([id, n]) => `<button data-a="layout" data-n="${id}" aria-pressed="${id === ui.layout}">${n}</button>`).join("")}</div></div>`;
+  const drawer = ui.drawer ? `<div class="drawer"><div class="drawerin"><div class="top"><strong class="grow">Menu du match</strong><button class="btn small" data-a="drawer">Fermer</button></div>${layoutPick}<div class="card"><h2>Chrono et quart-temps</h2>${quarters}${clock}${adjust}${court}</div>${totals}${quarterTable}${footer}</div></div>` : "";
+  let body;
+  if (ui.layout === "compact-v") body = header + opp + clockLine + courtChips + who + tapShots + tapCounters;
+  else if (ui.layout === "complet-h") body = `<div class="land"><div class="col">${header}${opp}${quarters}${clock}${adjust}${totals}</div><div class="col">${court}${allChips}${footer}</div><div class="col">${who}${shots}${counters}${quarterTable}</div></div>`;
+  else if (ui.layout === "compact-h") body = `<div class="land tight"><div class="col">${header}${opp}${clockLine}</div><div class="col">${courtChips}</div><div class="col">${who}${tapShots}${tapCounters}</div></div>`;
+  else body = header + opp + allChips + quarters + clock + adjust + court + who + shots + counters + totals + quarterTable + footer;
+  return body + drawer;
 }
 function viewLog() {
   const m = match(), list = [...m.log].reverse();
@@ -493,6 +525,7 @@ function viewRecap() {
 function render() {
   const screens = { home: viewHome, teams: viewTeams, roster: viewRoster, form: viewMatchForm, match: viewMatch, log: viewLog, recap: viewRecap };
   const dialog = ui.confirm ? `<div class="overlay"><div class="card dialog"><p>${esc(ui.confirm.text)}</p><div class="row"><button class="btn grow" data-a="no">Annuler</button><button class="btn main grow" data-a="yes">Confirmer</button></div></div></div>` : "";
+  document.body.classList.toggle("wide", ui.view === "match" && ui.layout.endsWith("-h"));
   document.getElementById("app").innerHTML = screens[ui.view]() + dialog;
 }
 let toastTimer = null;
@@ -526,8 +559,10 @@ const actions = {
   backup,
   leave: leaveMatch,
   backmatch: () => { ui.edit = null; ui.view = "match"; render(); },
-  numbers: () => { const m = match(); if (m.running) { toast("Arrête d'abord le chrono"); return; } ui.edit = m.id; ui.view = "form"; render(); },
-  log: () => { ui.view = "log"; render(); },
+  numbers: () => { const m = match(); if (m.running) { toast("Arrête d'abord le chrono"); return; } ui.drawer = false; ui.edit = m.id; ui.view = "form"; render(); },
+  log: () => { ui.drawer = false; ui.view = "log"; render(); },
+  drawer: () => { ui.drawer = !ui.drawer; render(); },
+  layout: b => setLayout(b.dataset.n),
   dellog: b => { const e = match().log.find(x => x.id === b.dataset.id); ui.confirm = { text: `Supprimer « ${e.label} » ?`, yes: () => deleteLog(e.id) }; render(); },
   undo: undoLast,
   opp: b => tapOpp(+b.dataset.n),

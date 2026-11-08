@@ -1,5 +1,5 @@
 // Change ce numéro à chaque mise à jour de l'appli pour que l'iPhone récupère les nouveaux fichiers.
-const CACHE = "stats-basket-v2";
+const CACHE = "stats-basket-v4";
 const FILES = ["./", "index.html", "style.css", "app.js", "xlsx.full.min.js", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", e => {

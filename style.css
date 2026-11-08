@@ -104,3 +104,64 @@ tbody tr { border-top: 1px solid var(--line); }
 .dialog p { margin: 4px 0 10px; font-size: 20px; font-weight: 700; text-align: center; }
 .toast { position: fixed; left: 14px; right: 14px; top: calc(10px + env(safe-area-inset-top)); z-index: 11; background: var(--accent); color: var(--ink); border-radius: 10px; padding: 12px; text-align: center; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* Joueurs sur le terrain en évidence, banc atténué */
+.player.on { border-color: var(--made); box-shadow: inset 0 0 0 1px var(--made); }
+.player.off { opacity: .45; }
+.player.off[aria-pressed=true] { opacity: .8; }
+.benchnote { margin-top: 6px; padding: 6px 8px; border-radius: 8px; background: var(--raised); font-size: 13px; color: var(--accent); }
+
+/* Quatre dispositions du match */
+.score small { display: inline-block; max-width: 74px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.players.five { grid-template-columns: repeat(5, 1fr); }
+.clockline { display: grid; grid-template-columns: 54px 1fr 110px; gap: 8px; align-items: center; margin-top: 8px; }
+.clockline .start, .clockline .stop { height: 44px; border-radius: 8px; border: 0; font-size: 18px; font-weight: 700; }
+.tapshots { display: grid; grid-template-columns: 74px 1fr 1fr; gap: 6px; align-items: center; margin-top: 8px; }
+.tapshots .head { font-size: 13px; color: var(--muted); text-align: center; font-weight: 600; }
+.tapshots .label { font-weight: 700; font-size: 13px; }
+.tap { height: 52px; border-radius: 10px; border: 0; font-size: 20px; font-weight: 700; }
+.tap b { font-size: 22px; font-variant-numeric: tabular-nums; }
+.tap.made { background: var(--made); color: #06240f; }
+.tap.miss { background: var(--miss); color: #2b0705; }
+.tap:active, .tapc:active { filter: brightness(1.3); }
+.tapcounters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.tapc { min-height: 54px; border-radius: 10px; border: 0; background: var(--accent); color: var(--ink); display: grid; justify-items: center; padding: 3px 1px; }
+.tapc span { font-size: 11px; font-weight: 600; }
+.tapc b { font-size: 20px; font-variant-numeric: tabular-nums; line-height: 1; }
+.pick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pick button { min-height: 44px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); font-weight: 600; font-size: 14px; }
+.pick button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: var(--ink); }
+.drawer { position: fixed; inset: 0; z-index: 9; background: var(--bg); overflow-y: auto; padding: calc(10px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom)); }
+.drawerin { max-width: 560px; margin: 0 auto; }
+
+body.wide { max-width: none; padding: calc(6px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left)); }
+.land { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(170px, 1fr) minmax(330px, 2fr); gap: 10px; height: calc(100dvh - 12px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+.land .col { overflow-y: auto; min-width: 0; }
+.land .top { flex-wrap: nowrap; gap: 4px; }
+.land .top .btn.small { flex: 1; padding: 0 3px; font-size: 12px; }
+.land .score { font-size: 26px; margin-top: 4px; }
+.land .opprow { grid-template-columns: repeat(4, 1fr); margin-top: 4px; }
+.land .opprow span { display: none; }
+.land .opprow button { height: 38px; }
+.land .clockrow { grid-template-columns: 1fr 1fr; margin-top: 4px; }
+.land .clockrow .clockval { grid-column: 1 / -1; }
+.land .players { grid-template-columns: 1fr 1fr; margin-top: 6px; }
+.land .who { margin-top: 0; }
+.land .card { margin-top: 5px; padding: 7px; }
+.land .others { grid-template-columns: repeat(3, 1fr); margin-top: 5px; }
+.land .others .card { margin: 0; }
+.land .others .card:last-child:nth-child(odd) { grid-column: auto; }
+.land.tight { grid-template-columns: minmax(180px, 1fr) minmax(120px, .7fr) minmax(360px, 2.4fr); }
+.land.tight .clockline { grid-template-columns: 44px 1fr; margin-top: 6px; }
+.land.tight .clockline .clockval { text-align: center; }
+.land.tight .clockline .start, .land.tight .clockline .stop { grid-column: 1 / -1; height: 44px; }
+.land.tight .players.five { grid-template-columns: 1fr; gap: 4px; margin-top: 0; }
+.land.tight .players.five .player { grid-template-columns: 34px 1fr; column-gap: 4px; align-items: center; justify-items: start; padding: 2px 6px; min-height: 60px; }
+.land.tight .players.five .player b { grid-row: span 3; }
+.land.tight .tapshots { grid-template-columns: 64px 1fr 1fr; gap: 3px 4px; margin-top: 3px; }
+.land.tight .tap { height: 36px; font-size: 16px; }
+.land.tight .tap b { font-size: 17px; }
+.land.tight .tapcounters { gap: 4px; margin-top: 4px; }
+.land.tight .tapc { min-height: 44px; }
+.land.tight .tapc b { font-size: 16px; }
+.land .adjrow button { font-size: 10px; white-space: nowrap; }
