@@ -165,3 +165,19 @@ body.wide { max-width: none; padding: calc(6px + env(safe-area-inset-top)) calc(
 .land.tight .tapc { min-height: 44px; }
 .land.tight .tapc b { font-size: 16px; }
 .land .adjrow button { font-size: 10px; white-space: nowrap; }
+
+/* Message discret en bas à gauche, qui ne bloque aucun bouton */
+.toast { top: auto; right: auto; left: calc(8px + env(safe-area-inset-left)); bottom: calc(8px + env(safe-area-inset-bottom)); max-width: min(60vw, 300px); padding: 7px 10px; font-size: 13px; text-align: left; pointer-events: none; opacity: .95; }
+/* Compact horizontal : − et + côte à côte, réglages du chrono et terrain sous le temps */
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+.tapm { border-radius: 8px; border: 1px solid var(--line); background: var(--raised); font-size: 18px; font-weight: 700; padding: 0; }
+.land.tight .tapm { height: 36px; }
+.land.tight .tapc2 { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 2px 3px 3px; display: grid; gap: 1px; }
+.land.tight .tapc2 > span { font-size: 10px; font-weight: 600; color: var(--muted); text-align: center; }
+.land.tight .tapc2 .tapc, .land.tight .tapc2 .tapm { min-height: 32px; height: 32px; }
+.land.tight .tapc2 .tapc b { font-size: 16px; }
+.land.tight .adjrow { margin-top: 4px; }
+.land.tight .courthead { margin: 5px 0 3px; }
+.land.tight .courtrow { grid-template-columns: repeat(4, 1fr); }
+.land.tight .courtrow button { height: 32px; }
+.land.tight .clockline .start, .land.tight .clockline .stop { height: 38px; }
