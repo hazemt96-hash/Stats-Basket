@@ -1212,5 +1212,9 @@ function boot() {
   render();
   setTimeout(splashOut, 900);
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  if ("serviceWorker" in navigator && location.protocol.startsWith("http") && !window.NO_SW) navigator.serviceWorker.register("sw.js").catch(() => {});
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http") && !window.NO_SW) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+    // Nouvelle version installée : on recharge une fois pour l'afficher (sauf pendant une saisie)
+    navigator.serviceWorker.addEventListener("message", ev => { if (ev.data === "sb2-updated" && ui.view !== "match" && !sessionStorage.getItem("sb2-reloaded")) { sessionStorage.setItem("sb2-reloaded", "1"); location.reload(); } });
+  }
 }
