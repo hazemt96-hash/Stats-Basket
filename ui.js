@@ -54,7 +54,15 @@ function avatar(p, cls = "") {
   const c = AV_COLORS[[...(p.id || "x")].reduce((a, ch) => a + ch.charCodeAt(0), 0) % AV_COLORS.length];
   return `<span class="av ${cls}" style="background:${c}" aria-hidden="true">${esc(initials(p))}</span>`;
 }
-const posTags = p => (p.pos || []).map(n => `<span class="tag" title="${esc(posName(n))}">${posLabel(n)}</span>`).join("");
+const posTags = p => (p.pos || []).map((n, i) => `<span class="tag${i === 0 ? " main" : ""}" title="${esc(posName(n))}${i === 0 ? " (" + esc(t("principale")) + ")" : ""}">${posLabel(n)}</span>`).join("");
+const POS_RANK = ["Principale", "Secondaire", "Tertiaire", "4e", "5e"];
+/* Tri et regroupement des listes de joueurs par position principale */
+function playerListHtml(list, rowFn) {
+  if (ui.psort !== "pos") return list.sort((a, b) => a.first.localeCompare(b.first)).map(rowFn).join("");
+  const groups = [1, 2, 3, 4, 5, 0].map(n => ({ n, ps: list.filter(p => ((p.pos || [])[0] || 0) === n).sort((a, b) => a.first.localeCompare(b.first)) })).filter(g => g.ps.length);
+  return groups.map(g => `<div class="grouphead">${g.n ? `${esc(posName(g.n))} <span class="tag main">${posLabel(g.n)}</span>` : t("Poste non renseigné")}<span class="muted"> · ${g.ps.length}</span></div>${g.ps.map(rowFn).join("")}`).join("");
+}
+const sortSeg = () => `<div class="seg sortseg"><span class="muted small">${t("Trier par")}</span>${[["name", "A → Z"], ["pos", "Position"]].map(([k, l]) => `<button data-a="psort" data-n="${k}" aria-pressed="${(ui.psort || "name") === k}">${t(l)}</button>`).join("")}</div>`;
 const teamSeason = (tm, se) => (tm && tm.seasons[se]) || { level: "", players: [] };
 const roster = (tm, se) => teamSeason(tm, se).players.map(playerById);
 const teamMatches = (tid, se) => db.matches.filter(m => m.teamId === tid && (!se || seasonOf(m.date) === se)).sort((a, b) => a.date.localeCompare(b.date) || a.created - b.created);
@@ -412,11 +420,12 @@ function lineupTable(rows, name, empty) {
 function vEffectif() {
   const tm = team();
   if (!tm) return noTeam();
-  const list = roster(tm, ui.season).sort((a, b) => a.first.localeCompare(b.first));
+  const list = roster(tm, ui.season);
   const can = canEditTeam(tm.id);
   return `<div class="btns">${seasonSelect()}<span></span></div>
   ${can ? `<div class="btns"><button class="btn main" data-a="newplayer">+ ${t("Nouveau joueur")}</button><button class="btn" data-a="pickplayers">${t("Ajouter du club")}</button></div>` : ""}
-  <div class="card">${list.length ? list.map(p => `<button class="row" data-a="player" data-id="${p.id}">${avatar(p)}<span class="grow"><b>${esc(fullName(p))}</b> ${posTags(p)}</span><span class="chev">›</span></button>`).join("") : `<p class="empty">${t("Effectif vide pour cette saison.")}</p>`}</div>
+  ${list.length > 1 ? sortSeg() : ""}
+  <div class="card">${list.length ? playerListHtml(list, p => `<button class="row" data-a="player" data-id="${p.id}">${avatar(p)}<span class="grow"><b>${esc(fullName(p))}</b> ${posTags(p)}</span><span class="chev">›</span></button>`) : `<p class="empty">${t("Effectif vide pour cette saison.")}</p>`}</div>
   <p class="muted small" style="margin:0">${t("Les numéros de maillot se choisissent à chaque match.")}</p>`;
 }
 function vReglages() {
@@ -491,7 +500,8 @@ function vNewMatch() {
   <div class="sec">${t("Saisie adverse")}</div>
   <div class="seg">${OPP_MODES.map(k => `<button data-a="formoppmode" data-n="${k}" aria-pressed="${(ui.form.oppMode || S.oppMode || "simple") === k}">${t(OPP_MODE_INFO[k][0])}<small>${t(OPP_MODE_INFO[k][1])}</small></button>`).join("")}</div>`}
   <div class="sec">${t("Joueurs présents et numéros du jour")}</div>
-  <div class="card">${list.length ? list.map(p => `<div class="check"><input type="checkbox" id="c-${p.id}" aria-label="${esc(fullName(p))}"${checked(p.id) ? " checked" : ""}><label for="c-${p.id}">${esc(fullName(p))} ${posTags(p)}</label><input class="inp" id="n-${p.id}" inputmode="numeric" maxlength="3" aria-label="${esc(t("Numéro de {n}", { n: fullName(p) }))}" value="${editing ? (rosterOf(editing, p.id) || {}).no ?? "" : lastNo[p.id] ?? ""}"></div>`).join("") : `<p class="empty">${t("Ajoute d'abord des joueurs à l'effectif de cette saison.")}</p>`}</div>
+  <div class="card">${list.length ? list.map(p => `<div class="check"><input type="checkbox" id="c-${p.id}" aria-label="${esc(fullName(p))}"${checked(p.id) ? " checked" : ""}><label for="c-${p.id}">${esc(fullName(p))} ${posTags(p)}</label><input class="inp" id="n-${p.id}" inputmode="numeric" maxlength="3" aria-label="${esc(t("Numéro de {n}", { n: fullName(p) }))}" value="${(ui.form.nos && ui.form.nos[p.id] != null) ? esc(ui.form.nos[p.id]) : editing ? (rosterOf(editing, p.id) || {}).no ?? "" : lastNo[p.id] ?? ""}"></div>`).join("") : `<p class="empty">${t("Ajoute d'abord des joueurs à l'effectif de cette saison.")}</p>`}</div>
+  ${editing ? "" : `<button class="btn" data-a="nmnewplayer">+ ${t("Nouveau joueur")}</button>`}
   <button class="btn main big" data-a="savematch">${editing ? t("Enregistrer") : t("Créer le match")}</button>`;
 }
 function pnav(n) {
@@ -535,7 +545,7 @@ function vPlayer() {
     c.gp++; addInto(c.sum, playerTotal(m, p.id));
   });
   const can = teamsOf.some(x => canEditTeam(x.id)) || isAdmin();
-  return `<div class="phead">${avatar(p, "lg")}<div><p class="pname">${esc(fullName(p))}</p><p class="muted small" style="margin:4px 0 0">${(p.pos || []).map(posName).map(esc).join(", ") || t("Poste non renseigné")} · ${t(p.sex === "M" ? "Masculin" : "Féminin")}</p></div></div>
+  return `<div class="phead">${avatar(p, "lg")}<div><p class="pname">${esc(fullName(p))}</p><p class="muted small" style="margin:4px 0 0">${(p.pos || []).map((n, i) => i === 0 ? `<b>${esc(posName(n))}</b>` : esc(posName(n))).join(" · ") || t("Poste non renseigné")} · ${t(p.sex === "M" ? "Masculin" : "Féminin")}</p></div></div>
   <div class="seg">${teamsOf.map(x => `<button data-a="ptab" data-n="${x.id}" aria-pressed="${ui.ptab === x.id}">${esc(x.name)}</button>`).join("")}${teamsOf.length > 1 ? `<button data-a="ptab" data-n="club" aria-pressed="${ui.ptab === "club"}">${t("Total club")}</button>` : ""}</div>
   <div class="btns">${seasonSelect()}<span class="muted small" style="align-self:center">${played.length} ${t("matchs joués")}${timedMin ? " · " + fmtClock(timedMin / gp) + " " + t("min/m") : ""}</span></div>
   ${played.length ? `<div class="kpis">
@@ -584,22 +594,23 @@ function teamChecklist(p, sex) {
   const other = db.teams.some(x => x.cat && x.cat !== sex);
   return `<div class="target"><span class="lbl">${t("Équipes en {s}", { s: ui.season })}</span>
   ${list.length ? list.map(x => { const can = canEditTeam(x.id), lv = teamSeason(x, ui.season).level; return `<label class="tcheck${can ? "" : " off"}"><input type="checkbox" data-pteam="${x.id}"${sel.includes(x.id) ? " checked" : ""}${can ? "" : " disabled"}><b>${esc(x.name)}</b>${lv ? `<small>${esc(lv)}</small>` : ""}</label>`; }).join("") : `<p class="muted small" style="margin:0">${t("Aucune équipe.")}</p>`}
-  ${other ? `<small>${t("Les équipes {c} ne sont pas proposées : un joueur ne joue que dans sa catégorie.", { c: catName(sex === "M" ? "F" : "M") })}</small>` : ""}</div>`;
+  ${other ? `<small>${t("Les équipes de l'autre catégorie ne sont pas proposées : un joueur ne joue que dans sa catégorie.")}</small>` : ""}</div>`;
 }
 function vEditPlayer() {
   const p = ui.editPlayer ? playerById(ui.editPlayer) : { first: "", last: "", pos: [], sex: (targetTeam() || {}).cat || "F", photo: "" };
   const pos = ui.form.pos || p.pos || [];
   const photo = ui.photo !== undefined ? ui.photo : p.photo;
   return `<p class="title">${ui.editPlayer ? t("Modifier le joueur") : t("Nouveau joueur")}</p>
-  ${!ui.editPlayer ? teamChecklist(p, ui.form.sex || p.sex) : ""}
   <div class="photo-edit">${avatar({ ...p, photo, first: ui.form.first ?? p.first, last: ui.form.last ?? p.last }, "lg")}<div style="display:grid;gap:6px"><label class="btn sm" style="display:grid;place-items:center">${t(photo ? "Changer la photo" : "Ajouter une photo")}<input type="file" id="photo" accept="image/*" hidden data-change="photo"></label>${photo ? `<button class="btn sm danger" data-a="nophoto">${t("Retirer la photo")}</button>` : ""}</div></div>
   <p class="muted small" style="margin:0">${t("Pour les mineurs, demande l'accord des parents avant d'ajouter une photo. Elle n'est visible que par les membres du club.")}</p>
   <div class="field"><label for="pf">${t("Prénom")}</label><input class="inp" id="pf" value="${esc(ui.form.first ?? p.first)}" autocomplete="off"></div>
   <div class="field"><label for="pl">${t("Nom")}</label><input class="inp" id="pl" value="${esc(ui.form.last ?? p.last)}" autocomplete="off"></div>
   <div class="field"><label for="pn">${t("Nom affiché (facultatif)")}</label><input class="inp" id="pn" value="${esc(ui.form.nick ?? p.nick ?? "")}" autocomplete="off" maxlength="16" placeholder="${esc(dispName({ ...p, nick: "", first: ui.form.first ?? p.first ?? "", last: ui.form.last ?? p.last ?? "" }) || t("ex. Léa B."))}"><p class="muted small" style="margin:4px 0 0">${t("Utile si deux joueurs ont le même prénom. Sinon l'appli les distingue toute seule : Léa M., Léa D.")}</p></div>
   <div class="field"><span class="lbl">${t("Catégorie")}</span><div class="seg">${CATS.map(c => `<button data-a="formsex" data-n="${c}" aria-pressed="${(ui.form.sex || p.sex) === c}">${t(c === "F" ? "Féminin" : "Masculin")}</button>`).join("")}</div></div>
-  ${ui.editPlayer ? teamChecklist(p, ui.form.sex || p.sex) : ""}
-  <div class="field"><span class="lbl">${t("Positions (de une à cinq)")}</span><div class="poschips">${[1, 2, 3, 4, 5].map(n => `<button data-a="formpos" data-n="${n}" aria-pressed="${pos.includes(n)}" title="${esc(posName(n))}">${posLabel(n)}</button>`).join("")}</div></div>
+  <div class="field"><span class="lbl">${t("Positions, par ordre de préférence")}</span><div class="poschips">${[1, 2, 3, 4, 5].map(n => `<button data-a="formpos" data-n="${n}" aria-pressed="${pos.includes(n)}" title="${esc(posName(n))}">${posLabel(n)}${pos.includes(n) ? `<small class="ord">${pos.indexOf(n) + 1}</small>` : ""}</button>`).join("")}</div>
+  ${pos.length ? `<p class="posorder">${pos.map((n, i) => `<span><b>${t(POS_RANK[i])}</b> ${esc(posName(n))}</span>`).join("")}</p>` : ""}
+  <p class="muted small" style="margin:4px 0 0">${t("Touche d'abord le poste principal, puis le secondaire, puis le tertiaire. Pour changer l'ordre, retire un poste et remets-le.")}</p></div>
+  ${teamChecklist(p, ui.form.sex || p.sex)}
   <button class="btn main big" data-a="saveplayer">${t("Enregistrer")}</button>
   ${ui.editPlayer && isAdmin() && !db.matches.some(m => m.stats[ui.editPlayer]) ? `<button class="btn danger" data-a="deleteplayer">${t("Supprimer du club")}</button>` : ""}`;
 }
@@ -610,7 +621,7 @@ function vPickPlayers() {
   return `<p class="title">${t("Ajouter du club")}</p>${targetBox(tm, false)}
   <input class="inp" id="pq" placeholder="${esc(t("Rechercher un nom"))}" value="${esc(ui.form.q || "")}" data-input="pq">
   <p class="muted small" style="margin:0">${t("Seuls les joueurs de catégorie {c} sont proposés.", { c: catName(tm.cat) })}</p>
-  <div class="card">${list.length ? list.map(p => `<label class="check"><input type="checkbox" data-pick="${p.id}"${ui.pick.includes(p.id) ? " checked" : ""}>${avatar(p, "sm")}<span>${esc(fullName(p))} ${posTags(p)}<br><span class="muted small">${esc(playerTeamsLabel(p.id, se) || t("Sans équipe cette saison"))}</span></span></label>`).join("") : `<p class="empty">${t("Aucun joueur à ajouter.")}</p>`}</div>
+  <div class="card">${list.length ? list.map(p => `<label class="check pk"><input type="checkbox" data-pick="${p.id}"${ui.pick.includes(p.id) ? " checked" : ""}>${avatar(p, "sm")}<span>${esc(fullName(p))} ${posTags(p)}<br><span class="muted small">${esc(playerTeamsLabel(p.id, se) || t("Sans équipe cette saison"))}</span></span></label>`).join("") : `<p class="empty">${t("Aucun joueur à ajouter.")}</p>`}</div>
   <button class="btn main big" data-a="addpicked">${t("Ajouter la sélection")}</button>`;
 }
 /* Catégorie : un joueur masculin ne joue que dans une équipe masculine, et une joueuse dans une équipe féminine */
@@ -621,14 +632,15 @@ function playerTeamsLabel(pid, se) { return db.teams.filter(x => teamSeason(x, s
 function vClubPlayers() {
   const f = ui.filters, q = low(f.q);
   const list = db.players.filter(p => (f.sex === "all" || p.sex === f.sex) && (!q || low(fullName(p)).includes(q)) && (f.team === "all" || (f.team === "none" ? !playerTeamsLabel(p.id, f.season) : teamSeason(db.teams.find(x => x.id === f.team), f.season).players.includes(p.id))))
-    .sort((a, b) => a.first.localeCompare(b.first));
+    ;
   return `<p class="title">${t("Joueurs du club")} <span class="tag">${db.players.length}</span></p>
   <input class="inp" placeholder="${esc(t("Rechercher un nom"))}" value="${esc(f.q)}" data-input="fq" id="fq">
   <div class="seg">${[["all", "Tous"], ["F", "Féminin"], ["M", "Masculin"]].map(([k, n]) => `<button data-a="filter" data-k="sex" data-n="${k}" aria-pressed="${f.sex === k}">${t(n)}</button>`).join("")}</div>
-  <div class="btns"><select class="inp" data-change="fteam" aria-label="${esc(t("Équipe"))}"><option value="all">${t("Toutes les équipes")}</option>${db.teams.map(x => `<option value="${x.id}"${f.team === x.id ? " selected" : ""}>${esc(x.name)}</option>`).join("")}<option value="none"${f.team === "none" ? " selected" : ""}>${t("Sans équipe cette saison")}</option></select>
+  <div class="btns"><select class="inp" data-change="fteam" aria-label="${esc(t("Équipe"))}"><option value="all">${t("Toutes les équipes")}</option>${db.teams.filter(x => f.sex === "all" || !x.cat || x.cat === f.sex).sort((a, b) => a.name.localeCompare(b.name)).map(x => `<option value="${x.id}"${f.team === x.id ? " selected" : ""}>${esc(x.name)}</option>`).join("")}<option value="none"${f.team === "none" ? " selected" : ""}>${t("Sans équipe cette saison")}</option></select>
   <select class="inp" data-change="fseason" aria-label="${esc(t("Saison"))}">${allSeasons().map(s => `<option${s === f.season ? " selected" : ""}>${s}</option>`).join("")}</select></div>
   <div class="sec">${list.length} ${t(list.length > 1 ? "joueurs" : "joueur")}</div>
-  <div class="card">${list.map(p => { const tl = playerTeamsLabel(p.id, f.season); return `<button class="row" data-a="player" data-id="${p.id}">${avatar(p)}<span class="grow"><b>${esc(fullName(p))}</b><br><span class="small ${tl ? "muted" : "neg"}">${esc(tl || t("Sans équipe cette saison"))}</span></span>${posTags(p)}</button>`; }).join("") || `<p class="empty">${t("Aucun joueur ne correspond.")}</p>`}</div>
+  ${list.length > 1 ? sortSeg() : ""}
+  <div class="card">${playerListHtml(list, p => { const tl = playerTeamsLabel(p.id, f.season); return `<button class="row" data-a="player" data-id="${p.id}">${avatar(p)}<span class="grow"><b>${esc(fullName(p))}</b><br><span class="small ${tl ? "muted" : "neg"}">${esc(tl || t("Sans équipe cette saison"))}</span></span>${posTags(p)}</button>`; }) || `<p class="empty">${t("Aucun joueur ne correspond.")}</p>`}</div>
   ${isAdmin() || role() === "coach" ? `<button class="btn main big" data-a="newplayerclub">+ ${t("Nouveau joueur")}</button>` : ""}`;
 }
 function vTeams() {
@@ -1278,7 +1290,17 @@ function savePlayer(stay) {
     });
   }
   const added = !ui.editPlayer && selTeams.length ? selTeams.map(x => x.name).join(", ") : "";
+  const fromMatch = !ui.editPlayer && ui.form.fromMatch;
   ui.form = {}; ui.photo = undefined;
+  if (fromMatch && ui.matchStash) {
+    const st = ui.matchStash; ui.matchStash = null;
+    save(); back();
+    ui.form = { ...st, checked: [...new Set([...(st.checked || []), p.id])], focusNo: p.id };
+    render();
+    setTimeout(() => { const n = document.getElementById("n-" + p.id); if (n) { n.scrollIntoView({ block: "center" }); n.focus(); } }, 50);
+    toast(t("{n} est dans la liste : indique son numéro", { n: p.first }));
+    return true;
+  }
   save(); toast(added ? t("Ajouté à {t}", { t: added }) : t("Joueur enregistré"));
   if (stay) return true;
   back(); return true;
@@ -1481,6 +1503,7 @@ const A = {
   oppnoskip: () => setOppNo(null),
   oppnoadd: () => { ui.oppNoInput = true; render(); setTimeout(() => { const i = document.getElementById("oppnoin"); if (i) i.focus(); }, 30); },
   oppnook: () => { const v = val("oppnoin").trim(); if (!/^\d{1,3}$/.test(v)) { toast(t("Numéro")); return; } setOppNo(+v); },
+  nmnewplayer: () => { keepMatchForm(); ui.matchStash = { ...ui.form }; go("editplayer", { editPlayer: null, form: { toTeam: true, fromMatch: true }, photo: undefined }); },
   formoppmode: b => { keepMatchForm(); ui.form.oppMode = b.dataset.n; render(); },
   ox: b => { const m = match(); if (!m || ui.readonly) return; const e = { kind: "ox", q: m.qi, ox: b.dataset.n, changes: [] }; commit(m, e); afterCommit(m, e, true); },
   savematch: saveMatchForm,
@@ -1488,6 +1511,7 @@ const A = {
   impswap: b => { const p = ui.imp.players[+b.dataset.n], parts = (p.first + " " + p.last).trim().split(" "); p.first = parts[parts.length - 1]; p.last = parts.slice(0, -1).join(" "); render(); },
   impcat: b => { ui.imp.newCat = b.dataset.n; render(); },
   impdo: () => doImportXl(),
+  psort: b => { ui.psort = b.dataset.n; render(); },
   analyses: b => go("analyses", { anaTab: b.dataset.n }),
   anatab: b => { ui.anaTab = b.dataset.n; window.scrollTo(0, 0); render(); },
   lusort: b => { ui.luSort = b.dataset.n; render(); },
@@ -1512,7 +1536,12 @@ const A = {
   pickall: () => { ui.form.allsex = !ui.form.allsex; render(); },
   addpicked: () => { const tm = team(), ts = tm.seasons[ui.season] = tm.seasons[ui.season] || { level: "", players: [] }; ui.pick = ui.pick.filter(id => catOk(playerById(id), tm)); ui.pick.forEach(id => { const p = playerById(id); if (p && !p.sex) p.sex = tm.cat; if (!ts.players.includes(id)) ts.players.push(id); }); const n = ui.pick.length; ui.pick = []; save(); back(); toast(t("{n} joueur(s) ajouté(s)", { n })); },
   clubplayers: () => go("clubplayers"),
-  filter: b => { ui.filters[b.dataset.k] = b.dataset.n; render(); },
+  filter: b => {
+    ui.filters[b.dataset.k] = b.dataset.n;
+    /* l'équipe choisie doit correspondre à la catégorie ; sinon on revient à « Toutes les équipes » */
+    if (b.dataset.k === "sex" && b.dataset.n !== "all") { const tm = db.teams.find(x => x.id === ui.filters.team); if (tm && tm.cat && tm.cat !== b.dataset.n) ui.filters.team = "all"; }
+    render();
+  },
   teams: () => go("teams"),
   teamsheet: b => go("teamsheet", { teamView: b.dataset.id }),
   addteam: () => { const name = val("tname").trim(), cat = val("tcat"), level = val("tlevel").trim(); if (!name) { toast(t("Indique le nom de l'équipe")); return; } const x = { id: uid(), name, cat, seasons: { [ui.season]: { level, players: [] } } }; db.teams.push(x); ui.teamId = x.id; save(); render(); toast(t("Équipe créée")); },
@@ -1590,7 +1619,7 @@ const A = {
   no: () => { ui.confirm = null; render(); },
   yes: () => { const c = ui.confirm; if (c.typed && low(val("ctyped").trim()) !== low(c.typed)) { toast(t("Le texte ne correspond pas")); return; } ui.confirm = null; c.yes(); render(); },
 };
-function keepMatchForm() { const o = document.getElementById("opp"), d = document.getElementById("date"); if (o) ui.form.opp = o.value; if (d) ui.form.date = d.value; const checked = [...document.querySelectorAll('input[type=checkbox][id^="c-"]')]; if (checked.length) ui.form.checked = checked.filter(c => c.checked).map(c => c.id.slice(2)); }
+function keepMatchForm() { const o = document.getElementById("opp"), d = document.getElementById("date"); if (o) ui.form.opp = o.value; if (d) ui.form.date = d.value; const checked = [...document.querySelectorAll('input[type=checkbox][id^="c-"]')]; if (checked.length) ui.form.checked = checked.filter(c => c.checked).map(c => c.id.slice(2)); const nos = [...document.querySelectorAll('input[id^="n-"]')]; if (nos.length) { ui.form.nos = ui.form.nos || {}; nos.forEach(n => { ui.form.nos[n.id.slice(2)] = n.value; }); } }
 function keepMemberForm() { const e = document.getElementById("memail"); if (e) ui.form.email = e.value; const boxes = [...document.querySelectorAll("[data-mteam]")]; if (boxes.length) ui.form.teams = boxes.filter(c => c.checked).map(c => c.dataset.mteam); }
 const READONLY_OK = new Set(["leave", "menu", "quarters", "closesheet", "court", "quick", "log", "report", "xls", "takeover", "layout", "topic", "no", "yes", "back", "info", "lexique", "player"]);
 

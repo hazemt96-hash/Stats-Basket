@@ -11,6 +11,11 @@ const POSITIONS = {
   es: [["B", "Base"], ["E", "Escolta"], ["A", "Alero"], ["AP", "Ala-pívot"], ["P", "Pívot"]],
 };
 const RAW = [
+["principale", "main", "principal"], ["Principale", "Main", "Principal"], ["Secondaire", "Secondary", "Secundaria"], ["Tertiaire", "Third", "Terciaria"], ["4e", "4th", "4.ª"], ["5e", "5th", "5.ª"],
+["Trier par", "Sort by", "Ordenar por"], ["Nom", "Last name", "Apellido"], ["Position", "Position", "Posición"], ["Positions, par ordre de préférence", "Positions, in order of preference", "Posiciones, por orden de preferencia"],
+["Touche d'abord le poste principal, puis le secondaire, puis le tertiaire. Pour changer l'ordre, retire un poste et remets-le.", "Tap the main position first, then the secondary, then the third. To change the order, remove a position and add it again.", "Toca primero la posición principal, luego la secundaria y la terciaria. Para cambiar el orden, quita una posición y vuelve a ponerla."],
+["Les équipes de l'autre catégorie ne sont pas proposées : un joueur ne joue que dans sa catégorie.", "Teams of the other category aren't listed: a player only plays in their category.", "Los equipos de la otra categoría no aparecen: un jugador solo juega en su categoría."],
+["{n} est dans la liste : indique son numéro", "{n} is on the list: enter their number", "{n} está en la lista: indica su dorsal"],
 ["Équipes en {s}", "Teams in {s}", "Equipos en {s}"], ["Les équipes {c} ne sont pas proposées : un joueur ne joue que dans sa catégorie.", "{c} teams aren't listed: a player only plays in their category.", "Los equipos de categoría {c} no aparecen: un jugador solo juega en su categoría."],
 ["Ajouté à l'équipe", "Added to team", "Añadido al equipo"], ["Saison {s}", "Season {s}", "Temporada {s}"], ["Ajouté à {t}", "Added to {t}", "Añadido a {t}"],
 ["Ta demande d'accès a été envoyée à l'administrateur du club.", "Your access request was sent to the club admin.", "Tu solicitud de acceso se ha enviado al administrador del club."],
