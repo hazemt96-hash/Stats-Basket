@@ -35,6 +35,19 @@ const team = () => db.teams.find(x => x.id === ui.teamId);
 const match = () => db.matches.find(m => m.id === ui.matchId);
 const playerById = id => db.players.find(p => p.id === id) || { id, first: "?", last: "", pos: [], sex: "F" };
 const fullName = p => `${p.first} ${p.last}`.trim();
+/* Nom court affiché : le prénom seul s'il est unique au club, sinon le prénom et le début du nom
+   (Léa M., puis Léa Mar. si besoin). Un « nom affiché » choisi dans la fiche passe avant tout. */
+function dispName(p, min) {
+  if (!p) return "?";
+  if (p.nick) return p.nick;
+  const L = p.last || "", same = db.players.filter(x => x.id !== p.id && !x.nick && low(x.first) === low(p.first));
+  if (!same.length) return min && L ? `${p.first} ${L[0]}.` : p.first;
+  for (let k = Math.max(1, min || 0); k <= L.length; k++) {
+    const pre = low(L.slice(0, k));
+    if (!same.some(x => low(x.last || "").startsWith(pre))) return `${p.first} ${L.slice(0, k)}${k < L.length ? "." : ""}`;
+  }
+  return fullName(p);
+}
 const initials = p => ((p.first || "?")[0] + (p.last || "")[0] || "").toUpperCase();
 function avatar(p, cls = "") {
   if (p.photo) return `<span class="av ${cls}"><img src="${p.photo}" alt=""></span>`;
@@ -129,7 +142,7 @@ function infoSheet(key, ctx) {
 }
 
 /* ================= ÉCRANS PRINCIPAUX ================= */
-const clubLogo = cls => `<img class="${cls}" src="logo.png" alt="" onerror="this.style.visibility='hidden'">`;
+const clubLogo = () => "";
 function appbar() {
   const tm = team(), lvl = tm ? teamSeason(tm, ui.season).level : "";
   return `<header class="appbar"><button class="teampick" data-a="teampick">${tm ? esc(tm.name) : t("Choisir une équipe")}</button><span class="mid">${esc(ui.season)}${lvl ? `<b>${esc(lvl)}</b>` : ""}</span>${clubLogo("clublogo")}</header>`;
@@ -156,6 +169,177 @@ function noTeam() {
 function seasonSelect() {
   return `<select class="inp" id="seasonsel" data-change="season" aria-label="${esc(t("Saison"))}">${allSeasons().map(s => `<option${s === ui.season ? " selected" : ""}>${s}</option>`).join("")}</select>`;
 }
+/* ---------- Analyses : balles perdues, fautes, tirs ---------- */
+/* Rejoue le journal de chaque match pour savoir, à chaque action : le moment du quart-temps,
+   l'écart au score, le cinq sur le terrain et depuis combien de temps chaque joueuse joue sans pause. */
+function replayEvents(m) {
+  const out = [], onSince = {}, qEntries = {};
+  let us = 0, them = 0;
+  const qReal = q => (m.real && m.real[q]) || 0;
+  const scale = (q, el) => m.chrono === "prop" ? (qReal(q) > 0 ? el * QLEN(q) / qReal(q) : null) : el;
+  const elOf = e => {
+    if (m.chrono === "none" || !e.clock) return null;
+    const [a, b] = String(e.clock).split(":").map(Number);
+    if (isNaN(a) || isNaN(b)) return null;
+    const s = a * 60 + b;
+    return m.chrono === "prop" ? scale(e.q, s) : QLEN(e.q) - s;
+  };
+  const gameT = (q, el) => (el == null ? null : QS.slice(0, q).reduce((x, _, i) => x + QLEN(i), 0) + el);
+  m.log.forEach(e => { (qEntries[e.q] = qEntries[e.q] || []).push(e); });
+  m.log.forEach(e => {
+    if (e.kind === "sub") {
+      const el = scale(e.q, e.el), g = gameT(e.q, el);
+      if (e.in) onSince[e.in] = g;
+      if (e.out) delete onSince[e.out];
+      return;
+    }
+    const el = elOf(e), list = qEntries[e.q] || [], idx = list.indexOf(e);
+    const frac = el != null ? el / QLEN(e.q) : (list.length > 1 ? idx / (list.length - 1) : .5);
+    const g = gameT(e.q, el), court = e.five ? e.five.split("|") : [];
+    const stint = {};
+    court.forEach(pid => { if (g != null && onSince[pid] != null) stint[pid] = (g - onSince[pid]) / 60; });
+    if (e.shot || e.stat || e.oppPts) out.push({ e, q: e.q, frac, margin: us - them, court, stint, five: e.five || "" });
+    us += e.pts || 0; them += e.oppPts || 0;
+  });
+  return out;
+}
+const PHASES = [["2 premières min", f => f < .2], ["Milieu", f => f >= .2 && f < .8], ["2 dernières min", f => f >= .8]];
+const pc = v => (v == null ? "-" : Math.round(v * 100) + (S.lang === "en" ? "%" : " %"));
+const SCORE_SIT = [["Mené de plus de 5", x => x < -5], ["Serré (±5)", x => x >= -5 && x <= 5], ["Devant de plus de 5", x => x > 5]];
+const STINTS = [["0 à 3 min sans pause", x => x < 3], ["3 à 6 min", x => x >= 3 && x < 6], ["Plus de 6 min", x => x >= 6]];
+const blankA = () => ({ fga: 0, fgm: 0, tpm: 0, fta: 0, ftm: 0, tov: 0, pf: 0, pts: 0, n: 0 });
+function addEv(a, ev) {
+  const e = ev.e, d = e.d || 1;
+  if (e.shot) { if (e.shot === "ft") { a.fta += d; if (e.made) { a.ftm += d; a.pts += d; } } else { a.fga += d; if (e.made) { a.fgm += d; a.pts += d * SHOT[e.shot].p; if (e.shot === "three") a.tpm += d; } } }
+  if (e.stat === "tov") a.tov += d;
+  if (e.stat === "pf") a.pf += d;
+  a.n++;
+}
+const possA = a => a.fga + .44 * a.fta + a.tov;
+const tovRate = a => possA(a) > 0 ? a.tov / possA(a) : null;
+const efgA = a => a.fga > 0 ? (a.fgm + .5 * a.tpm) / a.fga : null;
+function bucketize(evs, groups, keyFn, filter) {
+  const res = groups.map(([l]) => ({ l, a: blankA() }));
+  evs.forEach(ev => { if (filter && !filter(ev)) return; const k = keyFn(ev); if (k == null) return; const i = groups.findIndex(([, f]) => f(k)); if (i >= 0) addEv(res[i].a, ev); });
+  return res;
+}
+function anaData(tid, se, range) {
+  const s = seasonTeamStats(tid, se, range);
+  const ms = s.ms, evMatches = ms.filter(m => m.log.some(e => e.shot || e.stat));
+  const evs = evMatches.flatMap(m => replayEvents(m).map(x => ({ ...x, m })));
+  return { s, ms, evMatches, evs, timedEv: evMatches.filter(m => m.chrono === "guided" || m.chrono === "manual" || m.chrono === "prop") };
+}
+/* Barres horizontales : libellé, barre proportionnelle, valeur affichée */
+function bars(rows, opts) {
+  const o = opts || {}, vals = rows.map(r => r.v).filter(v => v != null), max = o.max || Math.max(...vals, 0.0001);
+  return `<div class="bars${o.wrap ? " wrap" : ""}">${rows.map(r => `<div class="bar${r.v == null ? " na" : ""}"><span class="bl">${esc(r.l)}${r.sub ? `<small>${esc(r.sub)}</small>` : ""}</span><span class="bt"><i class="${r.cls || o.cls || ""}" style="width:${r.v == null ? 0 : Math.max(2, Math.round(100 * r.v / max))}%"></i></span><span class="bv">${r.v == null ? "-" : esc(r.txt != null ? r.txt : String(r.v))}</span></div>`).join("")}</div>`;
+}
+const pctOr = v => (v == null ? null : v);
+function sampleNote(n, min) {
+  return n < (min || 5) ? `<div class="box warn small" style="margin:0"><b>${t("Échantillon encore petit")}</b>${t("{n} match(s) analysé(s) : ce sont des pistes, pas encore des tendances. Elles deviennent fiables à partir de 5 ou 6 matchs.", { n })}</div>` : "";
+}
+function vAnalyses() {
+  const tm = team();
+  if (!tm) return noTeam();
+  const A = anaData(tm.id, ui.season, ui.range), tab = ui.anaTab || "tov";
+  const head = `<p class="title">${t("Analyses")}</p>
+  <div class="seg">${[["tov", "Balles perdues"], ["pf", "Fautes"], ["shots", "Tirs"]].map(([k, l]) => `<button data-a="anatab" data-n="${k}" aria-pressed="${tab === k}">${t(l)}</button>`).join("")}</div>
+  <div class="btns">${seasonSelect()}<div class="seg"><button data-a="range" data-n="season" aria-pressed="${ui.range !== "last5"}">${t("Saison")}</button><button data-a="range" data-n="last5" aria-pressed="${ui.range === "last5"}">${t("5 derniers")}</button></div></div>`;
+  if (!A.ms.length) return head + `<p class="empty">${t("Pas encore de match sur cette saison.")}</p>`;
+  const body = tab === "tov" ? anaTov(A) : tab === "pf" ? anaFouls(A) : anaShots(A);
+  return head + sampleNote(A.ms.length) + body + (A.evMatches.length < A.ms.length ? `<p class="muted small">${t("{n} match(s) importé(s) de l'ancienne appli ne comptent que dans les analyses par quart-temps et par joueuse.", { n: A.ms.length - A.evMatches.length })}</p>` : "");
+}
+/* Qui : tableau par joueuse */
+function anaPlayers(A) {
+  return seasonPlayerRows(team().id, ui.season, ui.range).filter(r => r.gp > 0);
+}
+function lineupRates(A, rate, minPoss, fmt) {
+  const by = {};
+  A.evs.forEach(ev => { if (!ev.five) return; (by[ev.five] = by[ev.five] || blankA()); addEv(by[ev.five], ev); });
+  const rows = Object.entries(by).map(([k, a]) => ({ ids: k.split("|"), a, v: rate(a), poss: possA(a) })).filter(r => r.v != null && r.poss >= minPoss);
+  return rows;
+}
+const namesOf = ids => ids.map(id => dispName(playerById(id))).join(" · ");
+function anaTov(A) {
+  const d = A.s.d, team = tovRate({ ...blankA(), fga: d.fga, fta: d.fta, tov: d.tov });
+  const qs = QS.map((q, i) => { const a = A.ms.reduce((x, m) => { const v = derive(teamQuarter(m, i)); x.fga += v.fga; x.fta += v.fta; x.tov += v.tov; return x; }, blankA()); return { l: q, a }; }).filter(r => possA(r.a) > 0);
+  const toRow = r => ({ l: t(r.l), v: tovRate(r.a), txt: tovRate(r.a) == null ? "-" : `${pc(tovRate(r.a))} · ${r.a.tov} ${t("BP")}`, cls: "neg" });
+  const ph = bucketize(A.evs, PHASES, ev => ev.frac), sc = bucketize(A.evs, SCORE_SIT, ev => ev.margin);
+  const stint = A.evs.length ? bucketize(A.evs.flatMap(ev => ev.e.stat === "tov" || ev.e.shot ? [{ ...ev, k: ev.stint[ev.e.pid] }] : []), STINTS, ev => ev.k) : [];
+  const players = anaPlayers(A).map(r => { const x = r.d; const p = x.fga + .44 * x.fta + x.tov; return { l: dispName(r.p), sub: `${x.tov} ${t("BP")} · ${t("{n} m.", { n: r.gp })}`, v: p >= 5 ? x.tov / p : null, txt: p >= 5 ? pc(x.tov / p) : "-", usg: r }; }).sort((a, b) => (b.v ?? -1) - (a.v ?? -1));
+  const lus = lineupRates(A, tovRate, 8).sort((a, b) => b.v - a.v);
+  return `<div class="card help"><p>${t("Taux de balles perdues : la part des attaques qui finissent par une perte de balle. Équipe : {p} sur la période.", { p: `<b>${pc(team)}</b>` })}</p></div>
+  <div class="sec">${t("Quand ?")}</div>
+  <div class="card"><div class="sub">${t("Par quart-temps")}</div>${bars(qs.map(toRow))}
+  <div class="sub">${t("Moment du quart-temps")}</div>${bars(ph.map(toRow))}
+  <div class="sub">${t("Selon le score")}</div>${bars(sc.map(toRow))}</div>
+  <div class="sec">${t("Qui ?")}</div>
+  <div class="card"><p class="muted small" style="margin:0 0 6px">${t("Part de ses attaques perdues. Une joueuse qui porte beaucoup le ballon en perd forcément plus : regarde aussi son USG dans le tableau de la saison.")}</p>${bars(players.slice(0, 10), { cls: "neg" })}</div>
+  <div class="sec">${t("Avec quel cinq ?")}</div>
+  <div class="card">${lus.length ? bars([...lus.slice(0, 3), ...(lus.length > 3 ? lus.slice(-2) : [])].map(r => ({ l: namesOf(r.ids), v: r.v, txt: `${pc(r.v)} · ${r.a.tov} ${t("BP")}`, cls: "neg" })), { wrap: true }) + `<p class="muted small" style="margin:6px 0 0">${t("Les 3 cinq qui perdent le plus de ballons, puis les 2 qui en perdent le moins (au moins 8 attaques ensemble).")}</p>` : `<p class="muted small">${t("Pas encore assez de temps de jeu ensemble.")}</p>`}</div>
+  <div class="sec">${t("Fatigue")}</div>
+  <div class="card">${A.timedEv.length ? bars(stint.map(r => ({ l: t(r.l), v: tovRate(r.a), txt: tovRate(r.a) == null ? "-" : `${pc(tovRate(r.a))} · ${r.a.tov} ${t("BP")}`, cls: "neg" }))) + `<p class="muted small" style="margin:6px 0 0">${t("Taux de balles perdues selon le temps que la joueuse a passé sur le terrain sans sortir.")}</p>` : `<p class="muted small">${t("Disponible pour les matchs saisis avec un chrono.")}</p>`}</div>`;
+}
+function anaFouls(A) {
+  const pl = anaPlayers(A);
+  const trouble = pl.map(r => {
+    let early = 0, half = 0, out = 0;
+    A.ms.forEach(m => { if (!m.stats[r.p.id] || !playedIn(m, r.p.id)) return; const f = i => (m.stats[r.p.id][i] || {}).pf || 0; if (f(0) >= 2) early++; if (f(0) + f(1) >= 3) half++; if (QS.reduce((s, _, i) => s + f(i), 0) >= 5) out++; });
+    const p40 = r.timedMin > 0 ? r.d.pf / (r.timedMin / 60) * 40 : null;
+    return { r, early, half, out, p40 };
+  });
+  const per40 = trouble.filter(x => x.r.d.pf > 0).sort((a, b) => (b.p40 ?? b.r.d.pf / b.r.gp) - (a.p40 ?? a.r.d.pf / a.r.gp)).slice(0, 10).map(x => ({ l: dispName(x.r.p), sub: `${x.r.d.pf} ${t("fautes")} · ${t("{n} m.", { n: x.r.gp })}`, v: x.p40 ?? x.r.d.pf / x.r.gp, txt: x.p40 != null ? t("{n} / 40 min", { n: dec(x.p40) }) : t("{n} / match", { n: dec(x.r.d.pf / x.r.gp) }), cls: "warn" }));
+  const qs = QS.map((q, i) => { const n = A.ms.reduce((s, m) => s + derive(teamQuarter(m, i)).pf, 0); return { l: q, v: A.ms.length ? n / A.ms.length : 0, txt: t("{n} / match", { n: dec(A.ms.length ? n / A.ms.length : 0) }), cls: "warn", n }; }).filter(r => r.n > 0 || r.l !== "Prol.");
+  /* Fautes commises alors que l'équipe en avait déjà 4 dans le quart-temps : elles donnent des lancers francs */
+  let bonus = 0, totalPf = 0;
+  A.evMatches.forEach(m => { const cnt = {}; m.log.forEach(e => { if (e.stat !== "pf") return; const d = e.d || 1; if (d > 0) { cnt[e.q] = (cnt[e.q] || 0); if (cnt[e.q] >= 4) bonus++; totalPf++; } cnt[e.q] = (cnt[e.q] || 0) + d; }); });
+  const ph = bucketize(A.evs, PHASES, ev => ev.frac), sc = bucketize(A.evs, SCORE_SIT, ev => ev.margin);
+  const perMatch = n => A.evMatches.length ? n / A.evMatches.length : 0;
+  const pfRow = r => ({ l: t(r.l), v: r.a.pf, txt: `${r.a.pf} ${t("fautes")}`, cls: "warn" });
+  const fd = pl.filter(r => r.d.fd > 0).sort((a, b) => b.d.fd - a.d.fd).slice(0, 8).map(r => ({ l: dispName(r.p), sub: `${r.d.fta} ${t("LF tentés")}`, v: r.d.fd, txt: `${r.d.fd}`, cls: "pos" }));
+  const tr = trouble.filter(x => x.early || x.half || x.out).sort((a, b) => (b.out * 3 + b.half * 2 + b.early) - (a.out * 3 + a.half * 2 + a.early));
+  return `<div class="sec">${t("Qui ?")}</div>
+  <div class="card"><p class="muted small" style="margin:0 0 6px">${t("Fautes rapportées à 40 minutes de jeu : la mesure la plus juste pour comparer.")}</p>${per40.length ? bars(per40) : `<p class="muted small">-</p>`}</div>
+  <div class="sec">${t("Joueuses en danger")}</div>
+  <div class="card">${tr.length ? `<table class="lutable"><thead><tr><th>${t("Joueur")}</th><th>${t("2 f. au Q1")}</th><th>${t("3 f. à la mi-temps")}</th><th>${t("5 fautes")}</th></tr></thead><tbody>${tr.map(x => `<tr><td class="ids">${esc(dispName(x.r.p))}<small>${t("{n} m.", { n: x.r.gp })}</small></td><td>${x.early || "-"}</td><td>${x.half || "-"}</td><td class="${x.out ? "neg" : ""}">${x.out || "-"}</td></tr>`).join("")}</tbody></table><p class="muted small" style="margin:6px 0 0">${t("Nombre de matchs où c'est arrivé.")}</p>` : `<p class="muted small">${t("Aucune joueuse n'a eu d'ennuis de fautes.")}</p>`}</div>
+  <div class="sec">${t("Quand ?")}</div>
+  <div class="card"><div class="sub">${t("Par quart-temps")}</div>${bars(qs)}
+  <div class="sub">${t("Moment du quart-temps")}</div>${bars(ph.map(pfRow))}
+  <div class="sub">${t("Selon le score")}</div>${bars(sc.map(pfRow))}</div>
+  <div class="sec">${t("Ce que ça coûte")}</div>
+  <div class="kpis"><div class="kpi"><b>${dec(perMatch(bonus))}</b><span>${t("Fautes / match au-delà de 4 fautes d'équipe")}</span></div><div class="kpi"><b>${totalPf ? pc(bonus / totalPf) : "-"}</b><span>${t("Part des fautes qui donnent des LF")}</span></div><div class="kpi"><b>${dec(A.ms.length ? A.s.d.pf / A.ms.length : 0)}</b><span>${t("Fautes / match")}</span></div></div>
+  <div class="sec">${t("Fautes provoquées")}</div>
+  <div class="card">${fd.length ? bars(fd) : `<p class="muted small">${t("Aucune faute provoquée notée pour le moment.")}</p>`}</div>`;
+}
+function anaShots(A) {
+  const d = A.s.d;
+  const zones = [["Raquette", d.rm, d.ra, 2], ["Mi-distance", d.mm, d.ma, 2], ["3 pts", d.tm, d.ta, 3], ["Lancers francs", d.fm, d.fa, 1]].map(([l, m, a, p]) => ({ l: t(l), v: a ? m * p / a : null, txt: a ? `${dec(m * p / a, 2)} ${t("pt/tir")} · ${m}/${a}` : "-", sub: a ? pc(m / a) : "", cls: "pos" }));
+  const pl = anaPlayers(A).filter(r => r.d.fga + r.d.fta > 0).sort((a, b) => b.d.pts - a.d.pts);
+  const cell = (m, a, p) => a ? `<b>${dec(m * p / a, 1)}</b><small>${m}/${a}</small>` : "-";
+  const qs = QS.map((q, i) => { const a = A.ms.reduce((x, m) => { const v = derive(teamQuarter(m, i)); x.fga += v.fga; x.fgm += v.fgm; x.tpm += v.tpm; return x; }, blankA()); return { l: q, a }; }).filter(r => r.a.fga > 0);
+  const efgRow = r => ({ l: t(r.l), v: efgA(r.a), txt: efgA(r.a) == null ? "-" : `${pc(efgA(r.a))} · ${r.a.fgm}/${r.a.fga}`, cls: "pos" });
+  const ph = bucketize(A.evs, PHASES, ev => ev.frac), sc = bucketize(A.evs, SCORE_SIT, ev => ev.margin);
+  const stint = bucketize(A.evs.flatMap(ev => ev.e.shot ? [{ ...ev, k: ev.stint[ev.e.pid] }] : []), STINTS, ev => ev.k);
+  const ftClutch = blankA(); A.evs.forEach(ev => { if (ev.e.shot === "ft" && ev.q >= 3 && ev.frac >= .8 && Math.abs(ev.margin) <= 5) addEv(ftClutch, ev); });
+  const lus = lineupRates(A, efgA, 0, null).filter(r => r.a.fga >= 8).sort((a, b) => b.v - a.v);
+  return `<div class="card help"><p>${t("Points par tir : ce que rapporte en moyenne un tir dans chaque zone. C'est le meilleur repère pour choisir ses tirs : un tir à 1,0 point vaut mieux qu'un tir à 0,7, même s'il rentre moins souvent.")}</p></div>
+  <div class="sec">${t("Points par tir selon la zone")}</div>
+  <div class="card">${bars(zones)}</div>
+  <div class="sec">${t("Situations")}</div>
+  <div class="kpis"><div class="kpi"><b>${d.fbp}</b><span>${t("Pts contre-attaque")}</span>${ib("fbp", [])}</div><div class="kpi"><b>${d.scp}</b><span>${t("Pts 2e chance")}</span>${ib("scp", [])}</div><div class="kpi"><b>${d.ptov}</b><span>${t("Pts après interc.")}</span>${ib("ptov", [])}</div></div>
+  <div class="sec">${t("Qui tire où ?")}</div>
+  <div class="card"><div class="tw"><table class="lutable"><thead><tr><th>${t("Joueur")}</th><th>${t("Raquette")}</th><th>${t("Mi-dist.")}</th><th>3 pts</th><th>${t("LF")}</th><th>eFG</th></tr></thead><tbody>${pl.map(r => { const x = r.d; return `<tr data-a="player" data-id="${r.p.id}"><td class="ids">${esc(dispName(r.p))}<small>${x.pts} pts</small></td><td>${cell(x.rm, x.ra, 2)}</td><td>${cell(x.mm, x.ma, 2)}</td><td>${cell(x.tm, x.ta, 3)}</td><td>${cell(x.fm, x.fa, 1)}</td><td>${x.fga ? pc(eFG(x)) : "-"}</td></tr>`; }).join("")}</tbody></table></div><p class="muted small" style="margin:6px 0 0">${t("En gros : points par tir. En petit : réussis / tentés.")}</p></div>
+  <div class="sec">${t("Quand ?")}</div>
+  <div class="card"><div class="sub">${t("Adresse (eFG) par quart-temps")}</div>${bars(qs.map(efgRow))}
+  <div class="sub">${t("Moment du quart-temps")}</div>${bars(ph.map(efgRow))}
+  <div class="sub">${t("Selon le score")}</div>${bars(sc.map(efgRow))}
+  <div class="sub">${t("Lancers francs en fin de match serré")}</div>${bars([{ l: t("Q4 et prol., 2 dernières min, ±5"), v: ftClutch.fta ? ftClutch.ftm / ftClutch.fta : null, txt: ftClutch.fta ? `${pc(ftClutch.ftm / ftClutch.fta)} · ${ftClutch.ftm}/${ftClutch.fta}` : "-", cls: "pos" }, { l: t("Toute la saison"), v: d.fa ? d.fm / d.fa : null, txt: d.fa ? `${pc(d.fm / d.fa)} · ${d.fm}/${d.fa}` : "-", cls: "pos" }], { max: 1 })}</div>
+  <div class="sec">${t("Fatigue")}</div>
+  <div class="card">${A.timedEv.length ? bars(stint.map(efgRow)) + `<p class="muted small" style="margin:6px 0 0">${t("Adresse selon le temps passé sur le terrain sans sortir.")}</p>` : `<p class="muted small">${t("Disponible pour les matchs saisis avec un chrono.")}</p>`}</div>
+  <div class="sec">${t("Avec quel cinq ?")}</div>
+  <div class="card">${lus.length ? bars([...lus.slice(0, 3), ...(lus.length > 3 ? lus.slice(-2) : [])].map(r => ({ l: namesOf(r.ids), v: r.v, txt: `${pc(r.v)} · ${r.a.fgm}/${r.a.fga}`, cls: "pos" })), { max: 1, wrap: true }) + `<p class="muted small" style="margin:6px 0 0">${t("Les 3 cinq les plus adroits, puis les 2 les moins adroits (au moins 8 tirs ensemble).")}</p>` : `<p class="muted small">${t("Pas encore assez de temps de jeu ensemble.")}</p>`}</div>`;
+}
+
 function vSaison() {
   const tm = team();
   if (!tm) return noTeam();
@@ -204,13 +388,15 @@ function vSaison() {
   <div class="sec">${t("Joueurs")}</div>
   <div class="seg"><button data-a="statmode" data-n="avg" aria-pressed="${mode === "avg"}">${t("Moyennes")}</button><button data-a="statmode" data-n="tot" aria-pressed="${mode === "tot"}">${t("Totaux")}</button><button data-a="statmode" data-n="p40" aria-pressed="${mode === "p40"}"${timedMs.length ? "" : " disabled"}>${t("Sur 40 min")}</button></div>
   <div class="card"><div class="tw"><table><thead><tr><th>${t("Joueur")}</th><th>${t("MJ")}</th>${COLS.map(([k, n, info]) => `<th data-a="sort" data-n="${k}" class="${ui.sort === k ? "sorted" : ""}">${esc(t(n))}${ui.sort === k ? " ▾" : ""}${info ? ih(info) : ""}</th>`).join("")}</tr></thead>
-  <tbody>${rows.map(r => `<tr data-a="player" data-id="${r.p.id}"><td><b>${esc(r.p.first)}</b> ${esc((r.p.last || "")[0] || "")}.</td><td>${r.gp}</td>${COLS.map(([k]) => `<td>${cell(r, k)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>
+  <tbody>${rows.map(r => `<tr data-a="player" data-id="${r.p.id}"><td><b>${esc(dispName(r.p, 1))}</b></td><td>${r.gp}</td>${COLS.map(([k]) => `<td>${cell(r, k)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>
   <p class="muted small" style="margin:0">${t("Touche un titre pour trier, un joueur pour sa fiche. Un absent ne compte pas comme un 0.")}</p>
   <div class="row" style="padding:0;border:0"><span class="sec grow" style="margin:0">${t("Cinq et duos")}${ih("lineups")}</span><div class="seg" style="width:auto">${[["best", "Meilleurs"], ["worst", "Moins bons"]].map(([k, l]) => `<button class="${(ui.luSort || "best") === k ? "on" : ""}" data-a="lusort" data-n="${k}">${t(l)}</button>`).join("")}</div></div>
   <div class="sec">${t("Cinq")}</div>
-  <div class="card">${lineupTable(luSorted(lus).slice(0, 5), id => playerById(id).first, t("Pas encore assez de temps de jeu ensemble."))}</div>
+  <div class="card">${lineupTable(luSorted(lus).slice(0, 5), id => dispName(playerById(id)), t("Pas encore assez de temps de jeu ensemble."))}</div>
   <div class="sec">${t("Duos")}${ih("duos")}</div>
-  <div class="card">${lineupTable(luSorted(duoRows(lus.map(x => ({ ...x }))).filter(r => r.sec >= 300 || !timedMs.length)).slice(0, 5), id => playerById(id).first, "-")}</div>`}
+  <div class="card">${lineupTable(luSorted(duoRows(lus.map(x => ({ ...x }))).filter(r => r.sec >= 300 || !timedMs.length)).slice(0, 5), id => dispName(playerById(id)), "-")}</div>`}
+  <div class="sec">${t("Analyses")}</div>
+  <div class="anabtns">${[["tov", "Balles perdues"], ["pf", "Fautes"], ["shots", "Tirs"]].map(([k, l]) => `<button class="btn" data-a="analyses" data-n="${k}">${t(l)}</button>`).join("")}</div>
   <div class="btns"><button class="btn" data-a="teamsheet" data-id="${tm.id}">${t("Historique de l'équipe")}</button><button class="btn" data-a="xlsseason">Excel</button></div>
   ${lvl ? "" : ""}`;
 }
@@ -371,6 +557,7 @@ function vEditPlayer() {
   <p class="muted small" style="margin:0">${t("Pour les mineurs, demande l'accord des parents avant d'ajouter une photo. Elle n'est visible que par les membres du club.")}</p>
   <div class="field"><label for="pf">${t("Prénom")}</label><input class="inp" id="pf" value="${esc(ui.form.first ?? p.first)}" autocomplete="off"></div>
   <div class="field"><label for="pl">${t("Nom")}</label><input class="inp" id="pl" value="${esc(ui.form.last ?? p.last)}" autocomplete="off"></div>
+  <div class="field"><label for="pn">${t("Nom affiché (facultatif)")}</label><input class="inp" id="pn" value="${esc(ui.form.nick ?? p.nick ?? "")}" autocomplete="off" maxlength="16" placeholder="${esc(dispName({ ...p, nick: "", first: ui.form.first ?? p.first ?? "", last: ui.form.last ?? p.last ?? "" }) || t("ex. Léa B."))}"><p class="muted small" style="margin:4px 0 0">${t("Utile si deux joueurs ont le même prénom. Sinon l'appli les distingue toute seule : Léa M., Léa D.")}</p></div>
   <div class="field"><span class="lbl">${t("Catégorie")}</span><div class="seg">${CATS.map(c => `<button data-a="formsex" data-n="${c}" aria-pressed="${(ui.form.sex || p.sex) === c}">${t(c === "F" ? "Féminin" : "Masculin")}</button>`).join("")}</div></div>
   <div class="field"><span class="lbl">${t("Positions (une ou deux)")}</span><div class="poschips">${[1, 2, 3, 4, 5].map(n => `<button data-a="formpos" data-n="${n}" aria-pressed="${pos.includes(n)}" title="${esc(posName(n))}">${posLabel(n)}</button>`).join("")}</div></div>
   <button class="btn main big" data-a="saveplayer">${t("Enregistrer")}</button>
@@ -476,6 +663,108 @@ function vTrash() {
   <div class="card">${list.map(x => { const [k, l] = trashLabel(x), left = Math.max(0, Math.ceil((x.at + TRASH_DAYS * 864e5 - Date.now()) / 864e5)); return `<div class="row" style="flex-wrap:wrap"><span class="grow"><span class="muted small">${esc(k)}${x.withTeam ? " · " + t("avec l'équipe") : ""}</span><br><b>${esc(l)}</b><br><span class="muted small">${t("Supprimé le {d}{b} · encore {n} j", { d: fmtDate(new Date(x.at).toISOString().slice(0, 10)), b: x.by ? " " + t("par {n}", { n: x.by }) : "", n: left })}</span></span>
     ${x.withTeam ? "" : `<button class="btn" data-a="trashrestore" data-id="${x.id}">${t("Restaurer")}</button>`}${isAdmin() && !x.withTeam ? `<button class="btn danger" data-a="trashpurge" data-id="${x.id}">${t("Supprimer définitivement")}</button>` : ""}</div>`; }).join("") || `<p class="empty">${t("La corbeille est vide.")}</p>`}</div>`;
 }
+
+/* ---------- Importer l'Excel d'un match de l'ancienne appli ---------- */
+const normName = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+function findClubPlayer(name) {
+  const n = normName(name);
+  return db.players.find(p => normName(p.first + " " + p.last) === n || normName(p.last + " " + p.first) === n) || null;
+}
+function parseOldExcel(buf) {
+  const wb = XLSX.read(buf, { type: "array" });
+  const rows = name => wb.Sheets[name] ? XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null }) : null;
+  const mt = rows("Match"), det = rows("Détail joueurs"), qt = rows("Quarts-temps"), jr = rows("Journal");
+  if (!mt || !det || !qt) throw new Error("format");
+  const title = String((mt[0] || [])[0] || ""), cut = title.lastIndexOf(" contre ");
+  const teamName = cut > 0 ? title.slice(0, cut).trim() : "", opponent = cut > 0 ? title.slice(cut + 8).trim() : title;
+  const dateRow = mt.find(r => r && r[0] === "Date");
+  let date = dateRow ? dateRow[1] : "";
+  if (typeof date === "number") date = new Date(Math.round((date - 25569) * 864e5)).toISOString().slice(0, 10);
+  date = String(date || todayISO()).slice(0, 10);
+  const H = det[0], col = name => H.indexOf(name);
+  const MAP = { "+/-": "pm", Passes: "ast", Rebonds: "reb", "Reb. off.": "orb", Interceptions: "stl", Contres: "blk", "Balles perdues": "tov", Fautes: "pf", "Raquette réussis": "rm", "Raquette tentés": "ra", "Mi-dist. réussis": "mm", "Mi-dist. tentés": "ma", "3 pts réussis": "tm", "3 pts tentés": "ta", "LF réussis": "fm", "LF tentés": "fa" };
+  const players = {}, order = [];
+  det.slice(1).forEach(r => {
+    if (!r || !r[col("Joueur")]) return;
+    const q = QS.indexOf(String(r[col("QT")])), name = String(r[col("Joueur")]).trim(), no = Number(r[col("N°")]);
+    if (q < 0) return;
+    if (!players[name]) { players[name] = { name, no, q: QS.map(blank) }; order.push(name); }
+    const v = players[name].q[q], mn = String(r[col("Minutes")] || "0:00").split(":").map(Number);
+    v.min = (mn[0] || 0) * 60 + (mn[1] || 0);
+    Object.entries(MAP).forEach(([h, k]) => { const i = col(h); if (i >= 0) v[k] = Number(r[i]) || 0; });
+  });
+  const qH = qt[0], opp = QS.map(() => 0), played = QS.map(() => false);
+  qt.slice(1).forEach(r => { const q = QS.indexOf(String(r && r[0])); if (q >= 0) { opp[q] = Number(r[qH.indexOf("Points adv.")]) || 0; played[q] = true; } });
+  const log = (jr || []).slice(1).filter(r => r && r[2]).map((r, i) => ({ id: "x" + i, kind: "old", q: Math.max(0, QS.indexOf(String(r[0]))), clock: String(r[1] || ""), text: String(r[2]), changes: [], ts: 0 }));
+  return { teamName, opponent, date, opp, played, log, players: order.map(n => players[n]) };
+}
+function readOldExcel(file) {
+  const fr = new FileReader();
+  fr.onload = () => {
+    let x;
+    try { x = parseOldExcel(new Uint8Array(fr.result)); } catch (e) { toast(t("Ce fichier n'est pas un Excel de match de l'ancienne appli")); return; }
+    const tm = db.teams.find(y => normName(y.name) === normName(x.teamName) && canEditTeam(y.id)) || (canEditTeam(ui.teamId) ? team() : db.teams.find(y => canEditTeam(y.id)));
+    x.teamId = tm ? tm.id : (isAdmin() ? "new" : "");
+    x.players.forEach(p => {
+      const found = findClubPlayer(p.name);
+      p.pid = found ? found.id : null;
+      const parts = p.name.split(" ");
+      p.first = parts[0]; p.last = parts.slice(1).join(" ");
+    });
+    ui.imp = x; go("importxl");
+  };
+  fr.readAsArrayBuffer(file);
+}
+function vImportXl() {
+  const x = ui.imp;
+  if (!x) return `<p class="empty">-</p>`;
+  const teams = db.teams.filter(y => canEditTeam(y.id));
+  const us = x.players.reduce((s, p) => s + p.q.reduce((a, v) => a + 2 * (v.rm + v.mm) + 3 * v.tm + v.fm, 0), 0), them = x.opp.reduce((a, b) => a + b, 0);
+  const dup = db.matches.some(m => m.teamId === x.teamId && m.date === x.date && normName(m.opponent) === normName(x.opponent));
+  return `<p class="title">${t("Importer un match")}</p>
+  <div class="card help"><p>${t("Vérifie les informations, puis touche Importer. Le match, et les joueurs qui n'existent pas encore, sont ajoutés au club.")}</p></div>
+  <div class="card"><div class="field"><label>${t("Équipe")}</label><select class="inp" data-change="impteam">${teams.map(y => `<option value="${y.id}"${y.id === x.teamId ? " selected" : ""}>${esc(y.name)}</option>`).join("")}${isAdmin() ? `<option value="new"${x.teamId === "new" ? " selected" : ""}>${t("Nouvelle équipe")} : ${esc(x.teamName || "?")}</option>` : ""}</select></div>
+  <div class="field"><label for="impopp">${t("Adversaire")}</label><input class="inp" id="impopp" value="${esc(x.opponent)}" data-input="impopp"></div>
+  <div class="field"><label for="impdate">${t("Date")}</label><input class="inp" id="impdate" type="date" value="${esc(x.date)}" data-change="impdate"></div>
+  <div class="row"><span class="grow">${t("Score")}</span><b>${us} - ${them}</b></div></div>
+  ${dup ? `<div class="box warn"><b>${t("Déjà importé ?")}</b>${t("Un match contre {o} le {d} existe déjà dans cette équipe.", { o: x.opponent, d: fmtDate(x.date) })}</div>` : ""}
+  <div class="sec">${t("Joueurs")}</div>
+  <div class="card">${x.players.map((p, i) => `<div class="row"><span class="grow"><b>${t("N°")}${p.no} ${esc(p.pid ? fullName(playerById(p.pid)) : `${p.first} ${p.last}`)}</b><br><span class="muted small">${p.pid ? t("Déjà dans le club") : t("Nouveau joueur")}</span></span>${p.pid ? "" : `<button class="btn" data-a="impswap" data-n="${i}" title="${esc(t("Inverser prénom et nom"))}">${t("Prénom ⇄ Nom")}</button>`}</div>`).join("")}</div>
+  <p class="muted small">${t("Si un nom est inversé (« Bidart Louise »), touche Prénom ⇄ Nom.")}</p>
+  <button class="btn main big" data-a="impdo"${x.teamId ? "" : " disabled"}>${t("Importer")}</button>`;
+}
+function doImportXl() {
+  const x = ui.imp;
+  const opp = (document.getElementById("impopp") || {}).value;
+  if (opp != null) x.opponent = opp.trim() || x.opponent;
+  let tm;
+  if (x.teamId === "new") {
+    if (!isAdmin()) return;
+    tm = { id: uid(), name: x.teamName || t("Équipe"), cat: "", seasons: {} };
+    db.teams.push(tm);
+  } else tm = db.teams.find(y => y.id === x.teamId);
+  if (!tm || !canEditTeam(tm.id)) { toast(t("Accès refusé : tu n'as pas les droits pour cette équipe.")); return; }
+  const se = seasonOf(x.date);
+  tm.seasons[se] = tm.seasons[se] || { level: "", players: [] };
+  const roster = x.players.map(p => {
+    let pid = p.pid;
+    if (!pid) { const np = { id: uid(), first: p.first, last: p.last, sex: tm.cat === "M" ? "M" : tm.cat === "F" ? "F" : "", pos: [], photo: "" }; db.players.push(np); pid = np.id; }
+    if (!tm.seasons[se].players.includes(pid)) tm.seasons[se].players.push(pid);
+    return { pid, no: p.no, q: p.q };
+  });
+  const m = {
+    id: uid(), teamId: tm.id, opponent: x.opponent, date: x.date, chrono: "guided", roster: roster.map(r => ({ pid: r.pid, no: r.no })),
+    qi: x.played.lastIndexOf(true) >= 0 ? x.played.lastIndexOf(true) : 3, created: Date.now(),
+    clocks: QS.map((_, q) => (x.played[q] ? QLEN(q) : 0)), real: QS.map(() => 0), closed: x.played.slice(), court: [], opp: x.opp,
+    stats: Object.fromEntries(roster.map(r => [r.pid, r.q])), on: Object.fromEntries(roster.map(r => [r.pid, QS.map(() => 0)])),
+    fives: {}, rot: [], log: x.log, running: false, last: 0, imported: true,
+  };
+  db.matches.push(migrate({ teams: [], matches: [m] }).matches[0]);
+  save();
+  ui.imp = null; ui.teamId = tm.id; ui.season = se;
+  ui.stack = []; tab("matchs");
+  toast(t("Match importé"));
+}
 function vBackup() {
   const local = CLOUD ? localOnlyData() : null;
   const canImport = local && (local.matches.length || local.players.length);
@@ -483,6 +772,7 @@ function vBackup() {
   <div class="card help"><p>${CLOUD ? t("Tes données sont enregistrées en ligne pour tout le club. Une sauvegarde reste utile en cas de souci.") : t("Tes données sont sur ce téléphone. Exporte une sauvegarde après chaque match et garde le fichier dans Fichiers ou iCloud.")}</p></div>
   <div class="btns"><button class="btn" data-a="backup">${t("Sauvegarder")}</button><label class="btn" style="display:grid;place-items:center">${t("Restaurer")}<input type="file" id="restore" accept=".json,application/json" hidden data-change="restore"></label></div>
   <p class="muted small" style="margin:0">${t("Restaurer ajoute les équipes, joueurs et matchs du fichier sans rien effacer.")}</p>
+  ${isAdmin() || role() === "coach" || !CLOUD ? `<label class="btn" style="display:grid;place-items:center">${t("Importer l'Excel d'un match")}<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden data-change="impxl"></label>` : ""}
   ${team() ? `<button class="btn" data-a="xlsseason">${t("Excel de la saison")} : ${esc(team().name)}</button>` : ""}
   ${canImport ? `<button class="btn main" data-a="importlocal">${t("Envoyer au club les données de ce téléphone")}</button>` : ""}`;
 }
@@ -529,7 +819,7 @@ function reportNotes(m, R) {
     if (w.diff < 0) bad.push(t("{Q} perdu {a}-{o}", { Q: QS[w.q], a: w.a, o: w.o }));
     if (best.diff > 0) good.push(t("{Q} gagné {a}-{o}", { Q: QS[best.q], a: best.a, o: best.o }));
   }
-  R.players.filter(x => x.d.pf >= 4).forEach(x => bad.push(t("N°{n} {p} : {f} fautes", { n: x.r.no, p: x.p.first, f: x.d.pf })));
+  R.players.filter(x => x.d.pf >= 4).forEach(x => bad.push(t("N°{n} {p} : {f} fautes", { n: x.r.no, p: dispName(x.p), f: x.d.pf })));
   if (d.stl >= 10) good.push(t("{n} interceptions", { n: d.stl }));
   return { good: good.slice(0, 3), bad: bad.slice(0, 3) };
 }
@@ -538,7 +828,7 @@ function vReport() {
   if (!m) return `<p class="empty">-</p>`;
   const tm = db.teams.find(x => x.id === m.teamId), R = reportData(m), d = R.d, b = R.base, res = result(m);
   const bd = b.n ? b.d : null, n = b.n || 1;
-  const lead = (k, label, f) => { const best = [...R.players].sort((x, y) => f(y.d) - f(x.d))[0]; return best && f(best.d) > 0 ? `<div class="leader">${avatar(best.p, "sm")}<span class="n">${k === "pm" ? signed(f(best.d)) : f(best.d)}</span><span class="who">${t("N°")}${best.r.no} ${esc(best.p.first)}</span><span class="what">${esc(label)}</span></div>` : ""; };
+  const lead = (k, label, f) => { const best = [...R.players].sort((x, y) => f(y.d) - f(x.d))[0]; return best && f(best.d) > 0 ? `<div class="leader">${avatar(best.p, "sm")}<span class="n">${k === "pm" ? signed(f(best.d)) : f(best.d)}</span><span class="who">${t("N°")}${best.r.no} ${esc(dispName(best.p))}</span><span class="what">${esc(label)}</span></div>` : ""; };
   const notes = reportNotes(m, R), rows = lineupRows(m), rot = rotations(m), qsP = playedQuarters(m);
   const can = canEditTeam(m.teamId);
   return `<div id="sharecard" style="display:grid;gap:10px">
@@ -571,10 +861,10 @@ function vReport() {
   </div>
   <div class="sec">${t("Joueurs")}</div>
   <div class="card"><div class="tw"><table><thead><tr><th>${t("Joueur")}</th>${timed(m) ? "<th>Min</th>" : ""}<th>Pts</th><th>Reb</th><th>${t("Pas")}</th><th>${t("Int")}</th><th>${t("BP")}</th><th>${t("F")}</th><th>${t("Tirs")}</th><th>${t("3 pts")}</th><th>${t("LF")}</th><th>+/-</th><th>PIR${ih("pir")}</th></tr></thead><tbody>
-  ${R.players.map(({ r, p, d: x }) => `<tr data-a="player" data-id="${p.id}"><td><b>${r.no}</b> ${esc(p.first)}</td>${timed(m) ? `<td>${fmtClock(x.min)}</td>` : ""}<td>${x.pts}</td><td>${x.reb}</td><td>${x.ast}</td><td>${x.stl}</td><td>${x.tov}</td><td class="${x.pf >= 4 ? "neg" : ""}">${x.pf}</td><td>${ratio(x.fgm, x.fga)}</td><td>${ratio(x.tpm, x.tpa)}</td><td>${ratio(x.ftm, x.fta)}</td><td class="${x.pm > 0 ? "pos" : x.pm < 0 ? "neg" : ""}">${signed(x.pm)}</td><td>${x.pir}</td></tr>`).join("")}</tbody></table></div></div>
+  ${R.players.map(({ r, p, d: x }) => `<tr data-a="player" data-id="${p.id}"><td><b>${r.no}</b> ${esc(dispName(p))}</td>${timed(m) ? `<td>${fmtClock(x.min)}</td>` : ""}<td>${x.pts}</td><td>${x.reb}</td><td>${x.ast}</td><td>${x.stl}</td><td>${x.tov}</td><td class="${x.pf >= 4 ? "neg" : ""}">${x.pf}</td><td>${ratio(x.fgm, x.fga)}</td><td>${ratio(x.tpm, x.tpa)}</td><td>${ratio(x.ftm, x.fta)}</td><td class="${x.pm > 0 ? "pos" : x.pm < 0 ? "neg" : ""}">${signed(x.pm)}</td><td>${x.pir}</td></tr>`).join("")}</tbody></table></div></div>
   <div class="sec">${t("Cinq sur le terrain")}${ih("lineups")}</div>
-  <div class="card">${lineupTable(rows.sort((a, b) => (b.pf - b.pa) - (a.pf - a.pa) || b.sec - a.sec).slice(0, 8), id => (rosterOf(m, id) || {}).no, "-")}</div>
-  ${rot ? `<div class="sec">${t("Rotations")}</div><div class="card frise">${R.players.map(({ r, p }) => `<div class="fr"><span>${r.no} ${esc(p.first)}</span><span class="track">${qsP.map((q, i) => (rot[r.pid][q] || []).map(([a, b2]) => `<i style="left:${(i + a) / qsP.length * 100}%;width:${(b2 - a) / qsP.length * 100}%"></i>`).join("") + (i ? `<s style="left:${i / qsP.length * 100}%"></s>` : "")).join("")}</span></div>`).join("")}<div class="ax"><span></span><span>${qsP.map(q => `<span>${QS[q]}</span>`).join("")}</span></div></div>` : ""}
+  <div class="card">${lineupTable(rows.sort((a, b) => (b.pf - b.pa) - (a.pf - a.pa) || b.sec - a.sec).slice(0, 8), id => dispName(playerById(id)), "-")}</div>
+  ${rot ? `<div class="sec">${t("Rotations")}</div><div class="card frise">${R.players.map(({ r, p }) => `<div class="fr"><span>${r.no} ${esc(dispName(p))}</span><span class="track">${qsP.map((q, i) => (rot[r.pid][q] || []).map(([a, b2]) => `<i style="left:${(i + a) / qsP.length * 100}%;width:${(b2 - a) / qsP.length * 100}%"></i>`).join("") + (i ? `<s style="left:${i / qsP.length * 100}%"></s>` : "")).join("")}</span></div>`).join("")}<div class="ax"><span></span><span>${qsP.map(q => `<span>${QS[q]}</span>`).join("")}</span></div></div>` : ""}
   <div class="btns">${can ? `<button class="btn main" data-a="open" data-id="${m.id}">${t("Saisie")}</button>` : `<button class="btn" data-a="open" data-id="${m.id}">${t("Suivre en direct")}</button>`}<button class="btn" data-a="sharereport" data-id="${m.id}">${t("Partager")}</button></div>
   <div class="btns"><button class="btn" data-a="xls" data-id="${m.id}">Excel</button>${can ? `<button class="btn danger" data-a="delmatch" data-id="${m.id}">${t("Supprimer")}</button>` : "<span></span>"}</div>`;
 }
@@ -586,7 +876,7 @@ function vQuick() {
   <div class="hero"><div class="score-big" style="font-size:38px">${R.d.pts} – ${R.o}</div><div class="qstrip">${playedQuarters(m).map(x => `<div>${QS[x]}<b>${derive(teamQuarter(m, x)).pts}-${m.opp[x]}</b></div>`).join("")}</div>
   <p class="small muted" style="margin:6px 0 0">${t("Fautes d'équipe au {Q} : {n}", { Q: QS[q], n: teamFoulsQ(m, q) })}</p></div>
   <div class="card"><div class="tw"><table><thead><tr><th>${t("Joueur")}</th>${timed(m) ? "<th>Min</th>" : ""}<th>Pts</th><th>${t("F")}</th><th>${t("Tirs")}</th><th>${t("BP")}</th><th>+/-</th><th>PIR</th></tr></thead><tbody>
-  ${R.players.map(({ r, p, d: x }) => `<tr><td><b>${r.no}</b> ${esc(p.first)}${m.court.includes(r.pid) ? " ●" : ""}</td>${timed(m) ? `<td>${fmtClock(x.min)}</td>` : ""}<td>${x.pts}</td><td class="${x.pf >= 4 ? "neg" : x.pf === 3 ? "" : ""}" style="${x.pf >= 3 ? "font-weight:700;color:" + (x.pf >= 4 ? "var(--neg)" : "var(--warn)") : ""}">${x.pf}</td><td>${ratio(x.fgm, x.fga)}</td><td>${x.tov}</td><td>${signed(x.pm)}</td><td>${x.pir}</td></tr>`).join("")}</tbody></table></div></div>
+  ${R.players.map(({ r, p, d: x }) => `<tr><td><b>${r.no}</b> ${esc(dispName(p))}${m.court.includes(r.pid) ? " ●" : ""}</td>${timed(m) ? `<td>${fmtClock(x.min)}</td>` : ""}<td>${x.pts}</td><td class="${x.pf >= 4 ? "neg" : x.pf === 3 ? "" : ""}" style="${x.pf >= 3 ? "font-weight:700;color:" + (x.pf >= 4 ? "var(--neg)" : "var(--warn)") : ""}">${x.pf}</td><td>${ratio(x.fgm, x.fga)}</td><td>${x.tov}</td><td>${signed(x.pm)}</td><td>${x.pir}</td></tr>`).join("")}</tbody></table></div></div>
   <div class="kpis"><div class="kpi"><b>${pctTxt(eFG(R.d))}</b><span>eFG</span></div><div class="kpi"><b>${R.d.tov}</b><span>${t("Balles perdues")}</span></div><div class="kpi"><b>${R.d.orb}</b><span>${t("Reb. off.")}</span></div></div>`;
 }
 function vLog() {
@@ -631,21 +921,22 @@ function vMatchScreen() {
   const byNo = [...m.roster].sort((a, b) => a.no - b.no);
   const fb = pid => { const f = playerTotal(m, pid).pf; return f >= 3 ? `<span class="fb ${f >= 4 ? "f4" : "f3"}">${f}</span>` : ""; };
   const courtList = byNo.filter(r => m.court.includes(r.pid));
-  const five = `<div class="five${ui.sub ? " swapping" : ""}">${courtList.map(r => { const pl = playerById(r.pid); return `<button class="pl" data-a="court" data-id="${r.pid}" aria-pressed="${r.pid === ui.sel}">${fb(r.pid)}<b>${r.no}</b><span>${esc(pl.first)}</span><span>${derive(playerTotal(m, r.pid)).pts} pts</span></button>`; }).join("")}${Array.from({ length: 5 - courtList.length }, () => `<div class="pl empty-slot"><b>?</b><span>${t("libre")}</span></div>`).join("")}</div>`;
+  const five = `<div class="five${ui.sub ? " swapping" : ""}">${courtList.map(r => { const pl = playerById(r.pid); return `<button class="pl" data-a="court" data-id="${r.pid}" aria-pressed="${r.pid === ui.sel}">${fb(r.pid)}<b>${r.no}</b><span>${esc(dispName(pl))}</span><span>${derive(playerTotal(m, r.pid)).pts} pts</span></button>`; }).join("")}${Array.from({ length: 5 - courtList.length }, () => `<div class="pl empty-slot"><b>?</b><span>${t("libre")}</span></div>`).join("")}</div>`;
   const benchList = byNo.filter(r => !m.court.includes(r.pid));
-  const bench = `<div class="bench"><span>${t("Banc")}</span>${benchList.map(r => `<button class="bc" data-a="bench" data-id="${r.pid}" aria-pressed="${ui.sub === r.pid}"${ro ? " disabled" : ""}>${fb(r.pid)}<b>${r.no}</b> ${esc(playerById(r.pid).first)}</button>`).join("")}</div>
+  const bench = `<div class="bench"><span>${t("Banc")}</span>${benchList.map(r => `<button class="bc" data-a="bench" data-id="${r.pid}" aria-pressed="${ui.sub === r.pid}"${ro ? " disabled" : ""}>${fb(r.pid)}<b>${r.no}</b> ${esc(dispName(playerById(r.pid)))}</button>`).join("")}</div>
   ${ui.sub ? `<div class="subhint">${t("N°{n} entre : touche le joueur qui sort", { n: rosterOf(m, ui.sub).no })}</div>` : m.court.length < 5 && !ro ? `<div class="subhint">${t("Touche le banc pour placer {n} joueur(s) sur le terrain", { n: 5 - m.court.length })}</div>` : ""}`;
-  const who = `<div class="who"><b>${p ? `${t("N°")}${sel.no} ${esc(p.first)}` : t("Choisis un joueur")}</b><span>${v.pts} pts · ${v.pf} f · +/- ${signed(v.pm)} · PIR ${v.pir}</span></div>`;
+  const who = `<div class="who"><b>${p ? `${t("N°")}${sel.no} ${esc(dispName(p))}` : t("Choisis un joueur")}</b><span>${v.pts} pts · ${v.pf} f · +/- ${signed(v.pm)} · PIR ${v.pir}</span></div>`;
   const fast = S.fast && !ro ? `<div class="fast">${t("Contre-attaque")}<button class="switch" role="switch" data-a="fast" aria-checked="${ui.fast}" aria-label="${esc(t("Contre-attaque"))}"></button></div>` : "";
   const pair = (act, value, cls, name, min) => `<div class="pair"><button class="mn" data-a="${act}" data-d="-1" aria-label="${esc(t("Retirer"))} ${esc(name)}"${locked || value <= (min || 0) ? " disabled" : ""}>−</button><button class="t ${cls}" data-a="${act}" data-d="1" aria-label="${esc(t("Ajouter"))} ${esc(name)}"${locked ? " disabled" : ""}>+ <b>${value}</b></button></div>`;
   const shots = `<div class="shots"><span></span><span class="h">${t("Réussi")}</span><span class="h">${t("Raté")}</span>${SHOTS.map(s => `<span class="l">${t(s.id === "mid" ? "Mi-dist." : s.l)}</span>${pair(`shot:${s.id}:1`, v[s.m], "ok", t(s.l) + " " + t("réussi"))}${pair(`shot:${s.id}:0`, Math.max(0, v[s.a] - v[s.m]), "ko", t(s.l) + " " + t("raté"))}`).join("")}</div>`;
   const posC = POS_STATS.filter(([k]) => k !== "fd" || S.fd), negC = NEG_STATS.filter(([k]) => k !== "ba" || S.ba);
   const counters = `<div class="grp">${t("Positif")}</div><div class="counters">${posC.map(([k, n]) => `<div class="cnt"><span>${t(n)}</span>${pair("stat:" + k, v[k], "p", t(n), k === "reb" ? v.orb : 0)}</div>`).join("")}</div>
   <div class="grp">${t("Négatif")}</div><div class="counters">${negC.map(([k, n]) => `<div class="cnt"><span>${t(n)}</span>${pair("stat:" + k, v[k], "n", t(n))}</div>`).join("")}</div>`;
+  const countersLand = `<div class="counters all">${posC.map(([k, n]) => `<div class="cnt"><span>${t(n)}</span>${pair("stat:" + k, v[k], "p", t(n), k === "reb" ? v.orb : 0)}</div>`).join("")}${negC.map(([k, n]) => `<div class="cnt neg"><span>${t(n)}</span>${pair("stat:" + k, v[k], "n", t(n))}</div>`).join("")}</div>`;
   const extraBlock = full ? `<div class="extra"><div class="card"><div class="sec" style="margin:0 0 4px">${t("Totaux équipe")}</div><div class="teamline"><span><b>${ratio(t0.fgm, t0.fga)}</b> ${t("tirs")}</span><span><b>${ratio(t0.tpm, t0.tpa)}</b> 3 pts</span><span><b>${ratio(t0.ftm, t0.fta)}</b> LF</span><span><b>${t0.reb}</b> reb</span><span><b>${t0.ast}</b> pas</span><span><b>${t0.tov}</b> BP</span><span><b>${pctTxt(eFG(t0))}</b> eFG</span></div></div>
     <div class="card"><div class="sec" style="margin:0 0 4px">${t("Dernières actions")}</div>${[...m.log].reverse().slice(0, 5).map(e => `<div class="small" style="padding:3px 0">${QS[e.q]} ${esc(e.clock || "")} · ${esc(logLabel(m, e))}</div>`).join("") || `<span class="muted small">-</span>`}</div></div>` : "";
   const banner = ui.banner ? `<div class="banner" role="status"><span>${t("Chrono arrêté : action notée quand même")}</span><button data-a="relaunch">${t("Relancer")}</button></div>` : "";
-  if (land) return `<div class="mt land"><div class="col">${top}${roBar}${opp}${clock}${adj}${full ? extraBlock : ""}</div><div class="col">${five}${bench}</div><div class="col">${who}${fast}${shots}${counters}</div></div>${banner}`;
+  if (land) return `<div class="mt land"><div class="col">${top}${roBar}${opp}${clock}${adj}${full ? extraBlock : ""}</div><div class="col">${five}${bench}</div><div class="col">${fast ? `<div class="whorow">${who}${fast}</div>` : who}${shots}${countersLand}</div></div>${banner}`;
   return `<div class="mt">${top}${roBar}${opp}${clock}${adj}${five}${bench}${who}${fast}${shots}${counters}${extraBlock}</div>${banner}`;
 }
 function menuSheet() {
@@ -656,7 +947,7 @@ function menuSheet() {
     <button data-a="log">${t("Journal")}</button><button data-a="numbers"${ui.readonly ? " disabled" : ""}>${t("Numéros et présents")}</button>
     <button data-a="xls" data-id="${m.id}">Excel</button><button data-a="topic" data-n="chrono">${t("Aide chrono")}</button>
   </div>
-  ${!ui.readonly && m.court.length ? `<div class="sec">${t("Sortir du terrain sans remplaçant")}</div><div class="menu-grid">${m.court.map(pid => `<button data-a="benchout" data-id="${pid}">${t("N°")}${rosterOf(m, pid).no} ${esc(playerById(pid).first)}</button>`).join("")}</div>` : ""}
+  ${!ui.readonly && m.court.length ? `<div class="sec">${t("Sortir du terrain sans remplaçant")}</div><div class="menu-grid">${m.court.map(pid => `<button data-a="benchout" data-id="${pid}">${t("N°")}${rosterOf(m, pid).no} ${esc(dispName(playerById(pid)))}</button>`).join("")}</div>` : ""}
   <div class="sec">${t("Affichage")}</div>
   <div class="seg">${LAYOUTS.map(([k, n]) => `<button data-a="layout" data-n="${k}" aria-pressed="${S.layout === k}">${esc(t(n))}</button>`).join("")}</div>
   <button class="btn" data-a="closesheet">${t("Fermer")}</button>`;
@@ -834,7 +1125,7 @@ function readPhoto(file) {
   img.src = url;
 }
 function keepForm() {
-  ["pf", "pl"].forEach(id => { const e = document.getElementById(id); if (e) ui.form[id === "pf" ? "first" : "last"] = e.value; });
+  [["pf", "first"], ["pl", "last"], ["pn", "nick"]].forEach(([id, k]) => { const e = document.getElementById(id); if (e) ui.form[k] = e.value; });
 }
 function savePlayer() {
   keepForm();
@@ -844,6 +1135,8 @@ function savePlayer() {
   if (!p && db.players.some(x => low(x.first) === low(first) && low(x.last) === low(last))) { toast(t("Ce joueur existe déjà dans le club : ajoute-le depuis « Ajouter du club »")); return; }
   if (!p) { p = { id: uid(), first, last, pos: [], sex: "F", photo: "" }; db.players.push(p); }
   p.first = first; p.last = last;
+  const nick = (ui.form.nick ?? p.nick ?? "").trim();
+  if (nick) p.nick = nick; else delete p.nick;
   p.sex = ui.form.sex || p.sex || (team() || {}).cat || "F";
   p.pos = ui.form.pos || p.pos || [];
   if (ui.photo !== undefined) p.photo = ui.photo || "";
@@ -950,7 +1243,7 @@ function exportMatch(m) {
   playedQuarters(m).forEach(q => { const x = derive(teamQuarter(m, q)); quarters.push([QS[q], `${x.pts}-${m.opp[q]}`, ...statCells(x)]); });
   const detail = [["QT", "N°", t("Joueur"), "Min", "+/-", ...statHead()]];
   playedQuarters(m).forEach(q => R.players.forEach(({ r, p }) => { const x = derive(m.stats[r.pid][q]); detail.push([QS[q], r.no, fullName(p), timed(m) ? fmtClock(x.min) : "", x.pm, ...statCells(x)]); }));
-  const fives = [[t("Cinq"), "Min", t("Pour"), t("Contre"), t("Écart")], ...lineupRows(m).sort((a, b) => (b.pf - b.pa) - (a.pf - a.pa)).map(r => [r.ids.map(id => (rosterOf(m, id) || {}).no).join("-"), fmtClock(r.sec), r.pf, r.pa, r.pf - r.pa])];
+  const fives = [[t("Cinq"), "Min", t("Pour"), t("Contre"), t("Écart")], ...lineupRows(m).sort((a, b) => (b.pf - b.pa) - (a.pf - a.pa)).map(r => [r.ids.map(id => dispName(playerById(id))).join(", "), fmtClock(r.sec), r.pf, r.pa, r.pf - r.pa])];
   const log = [["QT", t("Chrono"), t("Action")], ...m.log.map(e => [QS[e.q], e.clock || "", logLabel(m, e)])];
   downloadBook([[t("Match"), main], [t("Avancées"), adv], [t("Quarts-temps"), quarters], [t("Détail"), detail], [t("Cinq"), fives], [t("Journal"), log]], `${fileSafe(tm ? tm.name : "")}_${fileSafe(m.opponent)}_${m.date}.xlsx`);
 }
@@ -989,13 +1282,13 @@ function gateView() {
     <div class="field"><label for="apass">${t("Mot de passe")}</label><input class="inp" id="apass" type="password" autocomplete="current-password"></div>
     <button class="btn main" data-a="signin">${t("Se connecter")}</button><div class="btns"><button class="btn" data-a="signup">${t("Créer un compte")}</button><button class="btn" data-a="reset">${t("Mot de passe oublié")}</button></div></div>
     <p class="muted small">${t("Ton compte doit être autorisé par l'administrateur du club. La première connexion demande du réseau, ensuite l'appli marche aussi hors ligne.")}</p></div>`;
-  if (!cloud.user.emailVerified) return `<div class="screen"><p class="title">${t("Vérifie ton e-mail")}</p><div class="card help"><p>${t("Un lien a été envoyé à {e}. Ouvre-le (regarde aussi les spams), puis reviens ici.", { e: esc(cloud.user.email) })}</p></div>
+  if (!cloud.user.emailVerified) return `<div class="screen"><p class="title">${t("Vérifie ton e-mail")}</p><div class="card help"><p>${t("Un lien a été envoyé à {e}. Ouvre-le (regarde aussi les spams), puis reviens ici.", { e: esc(cloud.user.email) })}</p><p><b>${t("Si l'e-mail n'arrive pas, attends quelques minutes et regarde dans les spams.")}</b></p></div>
     <button class="btn main big" data-a="verified">${t("J'ai vérifié")}</button><div class="btns"><button class="btn" data-a="resend">${t("Renvoyer l'e-mail")}</button><button class="btn" data-a="signout">${t("Se déconnecter")}</button></div></div>`;
   if (!cloud.member) return `<div class="screen"><p class="title">${t("Compte pas encore autorisé")}</p><div class="card help"><p>${t("Demande à l'administrateur du club d'ajouter {e}, puis touche Réessayer.", { e: "<b>" + esc(cloud.user.email) + "</b>" })}</p></div>
     <button class="btn main big" data-a="askaccess">${t("Envoyer ma demande")}</button><div class="btns"><button class="btn" data-a="recheck">${t("Réessayer")}</button><button class="btn" data-a="signout">${t("Se déconnecter")}</button></div></div>`;
   return null;
 }
-const SUBVIEWS = { chronoset: vChronoSet, newmatch: vNewMatch, player: vPlayer, editplayer: vEditPlayer, pickplayers: vPickPlayers, clubplayers: vClubPlayers, teams: vTeams, teamsheet: vTeamSheet, prepseason: vPrepSeason, members: vMembers, memberedit: vMemberEdit, backupview: vBackup, trashview: vTrash, account: vAccount, help: vHelp, topic: vTopic, lexique: vLexique, report: vReport, quick: vQuick, log: vLog };
+const SUBVIEWS = { chronoset: vChronoSet, newmatch: vNewMatch, player: vPlayer, editplayer: vEditPlayer, pickplayers: vPickPlayers, clubplayers: vClubPlayers, teams: vTeams, teamsheet: vTeamSheet, prepseason: vPrepSeason, members: vMembers, memberedit: vMemberEdit, backupview: vBackup, trashview: vTrash, importxl: vImportXl, analyses: vAnalyses, account: vAccount, help: vHelp, topic: vTopic, lexique: vLexique, report: vReport, quick: vQuick, log: vLog };
 function render() {
   applyTheme();
   const app = document.getElementById("app");
@@ -1050,6 +1343,10 @@ const A = {
   formchrono: b => { keepMatchForm(); ui.form.chrono = b.dataset.n; render(); },
   savematch: saveMatchForm,
   report: b => go("report", { reportId: b.dataset.id }),
+  impswap: b => { const p = ui.imp.players[+b.dataset.n], parts = (p.first + " " + p.last).trim().split(" "); p.first = parts[parts.length - 1]; p.last = parts.slice(0, -1).join(" "); render(); },
+  impdo: () => doImportXl(),
+  analyses: b => go("analyses", { anaTab: b.dataset.n }),
+  anatab: b => { ui.anaTab = b.dataset.n; window.scrollTo(0, 0); render(); },
   lusort: b => { ui.luSort = b.dataset.n; render(); },
   open: b => openMatch(b.dataset.id),
   newplayer: () => go("editplayer", { editPlayer: null, form: { toTeam: true, sex: (team() || {}).cat }, photo: undefined }),
@@ -1061,7 +1358,7 @@ const A = {
   saveplayer: savePlayer,
   deleteplayer: () => {
     const p = db.players.find(x => x.id === ui.editPlayer), n = db.matches.filter(m => m.roster.some(r => r.pid === p.id)).length;
-    if (n) { toast(t("{p} a joué {n} match(s) : retire-la de l'effectif plutôt que de la supprimer.", { p: p.first, n })); return; }
+    if (n) { toast(t("{p} a joué {n} match(s) : retire-la de l'effectif plutôt que de la supprimer.", { p: dispName(p), n })); return; }
     confirmBox(t("Mettre {p} à la corbeille ? Restauration possible pendant {d} jours.", { p: fullName(p), d: TRASH_DAYS }), () => { trashPlayer(p); save(); ui.stack.pop(); back(); }, t("Mettre à la corbeille"));
   },
   trashview: () => go("trashview"),
@@ -1135,7 +1432,10 @@ const A = {
   reset: () => doAuth("reset"),
   verified: checkVerified,
   resend: () => cloud.user.sendEmailVerification().then(() => toast(t("E-mail renvoyé")), e => toast(authMsg(e))),
-  recheck: async () => { await checkMember(); if (cloud.member) startSync(); render(); },
+  recheck: async () => {
+    try { await fbAuth.currentUser.reload(); cloud.user = fbAuth.currentUser; } catch (e) { /* hors ligne */ }
+    await freshToken(); await checkMember(); if (cloud.member) startSync(); else toast(t("Toujours pas autorisé : vérifie avec l'administrateur l'adresse e-mail exacte.")); render();
+  },
   askaccess: async () => {
     const text = t("Bonjour, peux-tu me donner accès à Stats Basket ? Mon e-mail : {e}", { e: cloud.user.email });
     try { if (navigator.share) { await navigator.share({ text }); return; } } catch (e) { if (e.name === "AbortError") return; }
@@ -1169,10 +1469,14 @@ document.addEventListener("change", e => {
   else if (k === "date") { keepMatchForm(); ui.form.date = el.value; render(); }
   else if (k === "photo" && el.files[0]) { keepForm(); readPhoto(el.files[0]); }
   else if (k === "restore" && el.files[0]) restoreFile(el.files[0]);
+  else if (k === "impxl" && el.files[0]) { readOldExcel(el.files[0]); el.value = ""; }
+  else if (k === "impteam") { ui.imp.teamId = el.value; render(); }
+  else if (k === "impdate") { ui.imp.date = el.value; render(); }
 });
 document.addEventListener("input", e => {
   const k = e.target.dataset.input;
   if (!k) return;
+  if (k === "impopp") { ui.imp.opponent = e.target.value; return; }
   if (k === "fq") ui.filters.q = e.target.value;
   if (k === "pq") ui.form.q = e.target.value;
   const pos = e.target.selectionStart;
@@ -1206,11 +1510,9 @@ function splashOut() {
   setTimeout(end, 820);
 }
 function boot() {
-  document.body.classList.add("splashing");
   pickDefaultTeam();
   initCloud();
   render();
-  setTimeout(splashOut, 900);
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ("serviceWorker" in navigator && location.protocol.startsWith("http") && !window.NO_SW) {
     navigator.serviceWorker.register("sw.js").catch(() => {});

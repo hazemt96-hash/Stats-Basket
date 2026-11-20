@@ -1,10 +1,9 @@
 // Change ce numéro à chaque mise à jour de l'appli pour que les téléphones récupèrent les nouveaux fichiers.
-const CACHE = "sb2-v9";
+const CACHE = "sb2-v18";
 const FILES = ["./", "index.html", "style.css", "core.js", "i18n.js", "cloud.js", "ui.js", "config.js", "xlsx.full.min.js", "html2canvas.min.js", "firebase-app-compat.js", "firebase-auth-compat.js", "firebase-firestore-compat.js", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 self.addEventListener("install", e => {
   // { cache: "reload" } : on prend les fichiers sur le serveur, jamais une vieille copie du navigateur
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES.map(f => new Request(f, { cache: "reload" })))
-    .then(() => c.add(new Request("logo.png", { cache: "reload" })).catch(() => {}))).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES.map(f => new Request(f, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", e => {
   // Supprime tous les anciens caches, y compris ceux de la première version de l'appli

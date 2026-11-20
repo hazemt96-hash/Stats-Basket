@@ -351,3 +351,71 @@ tbody tr[data-a] { cursor: pointer; }
 #splash.fly b { opacity: 0; }
 .splashing .appbar .clublogo, .splashing .gatelogo { opacity: 0; }
 @media (prefers-reduced-motion: reduce) { #splash { transition: none; } }
+
+/* ---------- Téléphone à l'horizontale : tout tient à l'écran, sans défiler ---------- */
+.land .whorow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.land .whorow .who { flex-direction: column; align-items: flex-start; gap: 0; min-width: 0; }
+.land .whorow .fast { gap: 8px; }
+.land .counters.all .cnt.neg { border-color: color-mix(in srgb, var(--neg) 45%, var(--line)); }
+@media (orientation: landscape) and (max-height: 500px) {
+  .mt.land { gap: 8px; grid-template-columns: minmax(0, 1fr) minmax(0, .62fr) minmax(0, 2fr); }
+  .land .col > * { min-width: 0; }
+  .land .mt-top .ic { min-width: 0; padding: 0 2px; font-size: 12px; }
+  .land .opp { gap: 4px; }
+  .land .opp button { min-width: 0; }
+  .land .clock .go { min-width: 0; padding: 0 2px; }
+  .land .adj { gap: 2px; }
+  .land .adj button { min-width: 0; padding: 0; font-size: 9.5px; }
+  .land .col { gap: 5px; }
+  .land .who b { font-size: 19px; }
+  .land .who span { font-size: 11px; }
+  .land .fast { font-size: 12px; padding: 2px 4px 2px 10px; }
+  .land .switch { transform: scale(.85); }
+  .land .shots { grid-template-columns: 58px 1fr 1fr; gap: 4px; }
+  .land .shots .h { font-size: 10.5px; line-height: 1; }
+  .land .shots .l { font-size: 12px; }
+  .land .pair { grid-template-columns: 28px 1fr; }
+  .land .mn, .land .t { height: 35px; font-size: 15px; }
+  .land .t b { font-size: 17px; }
+  .land .counters.all { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .land .cnt { padding: 2px 3px 3px; }
+  .land .cnt > span { font-size: 9.5px; }
+  .land .cnt .pair { grid-template-columns: 1fr 1.5fr; }
+  .land .cnt .mn, .land .cnt .t { height: 31px; }
+  .land .cnt .t b { font-size: 15px; }
+  .land .five { gap: 3px; }
+  .land .pl { padding: 1px 8px; border-width: 1.5px; }
+  .land .pl b { font-size: 20px; }
+  .land .pl span { font-size: 10px; line-height: 1.15; }
+  .land .bench { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+  .land .bench > span { grid-column: 1 / -1; font-size: 10px; }
+  .land .bc { height: 27px; min-width: 0; padding: 0 4px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+  .land .bc b { font-size: 15px; }
+  .land .mscore { font-size: 26px; }
+  .land .ic { height: 34px; }
+  .land .opp button { height: 36px; font-size: 19px; }
+  .land .clock { padding: 5px; }
+  .land .time { font-size: 30px; }
+  .land .go { height: 36px; font-size: 17px; }
+  .land .adj button { height: 24px; }
+}
+
+/* ---------- Analyses ---------- */
+.anabtns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.anabtns .btn { padding-left: 4px; padding-right: 4px; }
+.card .sub { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 10px 0 4px; }
+.card .sub:first-child { margin-top: 0; }
+.bars { display: grid; gap: 6px; }
+.bar { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 13px; }
+.bar .bl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.bar .bl small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; }
+.bar .bt { height: 10px; background: var(--chip); border-radius: 5px; overflow: hidden; }
+.bar .bt i { display: block; height: 100%; border-radius: 5px; background: var(--text); }
+.bar .bt i.neg { background: var(--neg); } .bar .bt i.pos { background: var(--good); } .bar .bt i.warn { background: var(--warn); }
+.bar .bv { font-variant-numeric: tabular-nums; font-size: 12.5px; text-align: right; white-space: nowrap; }
+.bar.na { opacity: .5; }
+.lutable td small { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; }
+.lutable td b { font-weight: 700; }
+.lutable td.neg { color: var(--neg); font-weight: 700; }
+.bars.wrap .bar { grid-template-columns: minmax(0, 1fr) auto; row-gap: 3px; }
+.bars.wrap .bar .bl { grid-column: 1 / -1; white-space: normal; }

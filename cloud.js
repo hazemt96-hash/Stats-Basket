@@ -136,7 +136,12 @@ function readMembers(d) {
   else if (me) { cloud.role = me.role; cloud.teams = me.teams || []; cloud.member = true; }
   else { cloud.member = false; }
 }
-async function checkMember() {
+/* Le jeton de connexion garde l'ancien état « e-mail non vérifié » jusqu'à une heure :
+   on en demande un neuf, sinon le serveur refuse l'accès alors que le compte est validé. */
+async function freshToken() {
+  try { if (fbAuth.currentUser && navigator.onLine !== false) await fbAuth.currentUser.getIdToken(true); } catch (e) { /* hors ligne */ }
+}
+async function checkMember(retried) {
   const email = low(cloud.user.email);
   try {
     const ref = fs.doc("config/members"), snap = await ref.get();
@@ -146,6 +151,7 @@ async function checkMember() {
       readMembers(d);
     } else readMembers(snap.data());
   } catch (e) {
+    if (!retried && e && e.code === "permission-denied") { await freshToken(); return checkMember(true); }
     cloud.member = false;
     try { const c = JSON.parse(localStorage.getItem("stats-basket-member") || "null"); if (c && c.email === email) { cloud.member = true; cloud.role = c.role; cloud.teams = c.teams; } } catch (x) { /* rien */ }
   }
@@ -172,7 +178,8 @@ function initCloud() {
   fbAuth.languageCode = S.lang;
   fbAuth.onAuthStateChanged(async u => {
     cloud.user = u; stopSync();
-    if (u && u.emailVerified) { await checkMember(); if (cloud.member) startSync(); }
+    if (u && !u.emailVerified && navigator.onLine !== false) { try { await u.reload(); u = fbAuth.currentUser; cloud.user = u; } catch (e) { /* hors ligne */ } }
+    if (u && u.emailVerified) { await freshToken(); await checkMember(); if (cloud.member) startSync(); }
     else cloud.member = false;
     cloud.ready = true;
     if (!team()) pickDefaultTeam();
