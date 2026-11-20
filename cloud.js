@@ -9,7 +9,7 @@ const DEVICE = (() => {
   try { let d = localStorage.getItem("stats-basket-device"); if (!d) { d = uid(); localStorage.setItem("stats-basket-device", d); } return d; }
   catch (e) { return uid(); }
 })();
-const cloud = { ready: !CLOUD, user: null, member: false, role: "admin", teams: [], members: {}, adminEmail: "", unsubs: [], synced: {}, pushTimer: null };
+const cloud = { requests: [], refused: {}, requested: false, ready: !CLOUD, user: null, member: false, role: "admin", teams: [], members: {}, adminEmail: "", unsubs: [], synced: {}, pushTimer: null };
 let fbAuth = null, fs = null;
 
 function loadDb() {
@@ -131,6 +131,7 @@ function readMembers(d) {
   const email = low(cloud.user.email);
   cloud.adminEmail = d.admin || "";
   cloud.members = d.members || {};
+  cloud.refused = d.refused || {};
   const me = cloud.members[email];
   if (d.admin === email) { cloud.role = "admin"; cloud.teams = []; cloud.member = true; }
   else if (me) { cloud.role = me.role; cloud.teams = me.teams || []; cloud.member = true; }
@@ -167,6 +168,24 @@ function startSync() {
     if (!cloud.member) { stopSync(); render(); return; }
     if (was !== cloud.role + cloud.teams.join() || ui.view === "members") render();
   }, () => {})];
+  if (isAdmin()) cloud.unsubs.push(listenRequests());
+}
+/* Demandes d'accès : un compte vérifié absent de la liste dépose une demande que seul l'admin voit */
+async function sendAccessRequest() {
+  if (!cloud.user || !cloud.user.emailVerified || cloud.member) return;
+  const email = low(cloud.user.email);
+  try { await fs.doc("requests/" + email).set({ email, at: Date.now() }); cloud.requested = true; } catch (e) { cloud.requested = false; }
+}
+function listenRequests() {
+  return fs.collection("requests").onSnapshot(snap => {
+    const refused = (cloud.refused || {});
+    cloud.requests = snap.docs.map(d => d.data()).filter(r => r && r.email && !cloud.members[r.email]);
+    /* une demande d'un compte déjà ajouté ou refusé est nettoyée */
+    snap.docs.forEach(d => { const r = d.data(); if (r && (cloud.members[r.email] || refused[r.email])) fs.doc("requests/" + d.id).delete().catch(() => {}); });
+    cloud.requests = cloud.requests.filter(r => !refused[r.email]).sort((a, b) => b.at - a.at);
+    if (cloud.requests.length && !cloud.reqToastShown) { cloud.reqToastShown = true; toast(t("{n} demande(s) d'accès en attente", { n: cloud.requests.length })); }
+    render();
+  }, () => {});
 }
 function stopSync() { cloud.unsubs.forEach(u => u()); cloud.unsubs = []; }
 function initCloud() {
@@ -179,7 +198,7 @@ function initCloud() {
   fbAuth.onAuthStateChanged(async u => {
     cloud.user = u; stopSync();
     if (u && !u.emailVerified && navigator.onLine !== false) { try { await u.reload(); u = fbAuth.currentUser; cloud.user = u; } catch (e) { /* hors ligne */ } }
-    if (u && u.emailVerified) { await freshToken(); await checkMember(); if (cloud.member) startSync(); }
+    if (u && u.emailVerified) { await freshToken(); await checkMember(); if (cloud.member) startSync(); else await sendAccessRequest(); }
     else cloud.member = false;
     cloud.ready = true;
     if (!team()) pickDefaultTeam();
@@ -215,14 +234,15 @@ async function checkVerified() {
     await fbAuth.currentUser.getIdToken(true);
     cloud.user = fbAuth.currentUser;
     await checkMember();
-    if (cloud.member) startSync();
+    if (cloud.member) startSync(); else await sendAccessRequest();
     render();
   } catch (e) { toast(authMsg(e)); }
 }
 async function writeMembers(mut) {
   const ref = fs.doc("config/members");
-  const d = { admin: cloud.adminEmail, members: JSON.parse(JSON.stringify(cloud.members)) };
-  mut(d.members);
+  const d = { admin: cloud.adminEmail, members: JSON.parse(JSON.stringify(cloud.members)), refused: JSON.parse(JSON.stringify(cloud.refused || {})) };
+  mut(d.members, d.refused);
+  Object.keys(d.members).forEach(e => { delete d.refused[e]; });
   try { await ref.set(d); readMembers(d); render(); return true; } catch (e) { syncError(e); return false; }
 }
 function localOnlyData() {

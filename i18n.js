@@ -11,6 +11,15 @@ const POSITIONS = {
   es: [["B", "Base"], ["E", "Escolta"], ["A", "Alero"], ["AP", "Ala-pívot"], ["P", "Pívot"]],
 };
 const RAW = [
+["Équipes en {s}", "Teams in {s}", "Equipos en {s}"], ["Les équipes {c} ne sont pas proposées : un joueur ne joue que dans sa catégorie.", "{c} teams aren't listed: a player only plays in their category.", "Los equipos de categoría {c} no aparecen: un jugador solo juega en su categoría."],
+["Ajouté à l'équipe", "Added to team", "Añadido al equipo"], ["Saison {s}", "Season {s}", "Temporada {s}"], ["Ajouté à {t}", "Added to {t}", "Añadido a {t}"],
+["Ta demande d'accès a été envoyée à l'administrateur du club.", "Your access request was sent to the club admin.", "Tu solicitud de acceso se ha enviado al administrador del club."],
+["Dès qu'il l'aura acceptée, touche Réessayer (ou rouvre l'appli).", "Once accepted, tap Retry (or reopen the app).", "Cuando la acepte, pulsa Reintentar (o vuelve a abrir la app)."],
+["Demandes d'accès en attente", "Pending access requests", "Solicitudes de acceso pendientes"], ["Demandes en attente", "Pending requests", "Solicitudes pendientes"],
+["Compte créé le {d}", "Account created {d}", "Cuenta creada el {d}"], ["Accepter", "Accept", "Aceptar"], ["Refuser", "Decline", "Rechazar"],
+["Accepter : tu choisis ensuite son rôle et ses équipes.", "Accept: you then choose their role and teams.", "Aceptar: luego eliges su rol y sus equipos."],
+["Refuser l'accès à {e} ?", "Decline access for {e}?", "¿Rechazar el acceso de {e}?"], ["Demande refusée", "Request declined", "Solicitud rechazada"],
+["{n} demande(s) d'accès en attente", "{n} pending access request(s)", "{n} solicitud(es) de acceso pendiente(s)"],
 ["Enregistrer les modifications avant de passer au joueur suivant ?", "Save changes before moving to the next player?", "¿Guardar los cambios antes de pasar al siguiente jugador?"],
 ["adv. {n}", "opp. {n}", "riv. {n}"], ["Bonus", "Bonus", "Bonus"], ["Avancée", "Advanced", "Avanzada"], ["+ n° de la joueuse", "+ player number", "+ dorsal de la jugadora"],
 ["Faute adverse", "Opponent foul", "Falta rival"], ["{x} : quel numéro ?", "{x}: which number?", "{x}: ¿qué dorsal?"], ["Numéro", "Number", "Dorsal"], ["Passer", "Skip", "Omitir"],

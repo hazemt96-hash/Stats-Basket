@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function email() { return request.auth.token.email.lower(); }
+    function memPath() { return /databases/$(database)/documents/config/members; }
+    function known() { return signedIn() && exists(memPath()) && email() in get(memPath()).data.members; }
+    function rec() { return get(memPath()).data.members[email()]; }
+    function isAdmin() { return signedIn() && (email() == 'hazemt96@gmail.com' || (known() && rec().role == 'admin')); }
+    function isMember() { return isAdmin() || known(); }
+    function isCoach() { return known() && rec().role == 'coach'; }
+    function canTeam(t) { return isAdmin() || (isCoach() && t in rec().teams); }
+
+    match /config/members {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+    match /teams/{id} {
+      allow read: if isMember();
+      allow create, delete: if isAdmin();
+      allow update: if canTeam(id);
+    }
+    match /matches/{id} {
+      allow read: if isMember();
+      allow create: if canTeam(request.resource.data.teamId);
+      allow update: if canTeam(resource.data.teamId) && canTeam(request.resource.data.teamId);
+      allow delete: if isAdmin() || (canTeam(resource.data.teamId) && existsAfter(/databases/$(database)/documents/trash/$(id)));
+    }
+    match /trash/{id} {
+      allow read: if isMember();
+      allow create, update: if isAdmin() || (request.resource.data.teamId != '' && canTeam(request.resource.data.teamId));
+      allow delete: if isAdmin() || (canTeam(resource.data.teamId) && existsAfter(/databases/$(database)/documents/matches/$(id)));
+    }
+    match /requests/{id} {
+      allow create, update: if signedIn() && id == email() && request.resource.data.email == email();
+      allow read, delete: if isAdmin();
+    }
+    match /players/{id} {
+      allow read: if isMember();
+      allow create, update: if isAdmin() || isCoach();
+      allow delete: if isAdmin();
+    }
+  }
+}

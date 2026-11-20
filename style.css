@@ -457,3 +457,24 @@ table.p40 tr.strong td { font-weight: 700; }
 .nopad .skip { background: none; border: 1.5px solid var(--line); font-size: 13px; color: var(--muted); }
 .lefthead span.teampick::after { content: none; }
 @media (max-width: 380px) { .lefthead .teampick { font-size: 17px; } }
+
+select.inp { padding-right: 34px; }
+
+/* Demandes d'accès */
+.badge { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--neg); color: #fff; font-size: 12px; font-weight: 700; vertical-align: 2px; }
+.tabbar button { position: relative; }
+.tabbar .dot { position: absolute; top: 4px; left: calc(50% + 8px); width: 9px; height: 9px; border-radius: 50%; background: var(--neg); border: 2px solid var(--bg); }
+
+/* Équipe cible lors de l'ajout d'un joueur */
+.target { display: grid; gap: 4px; padding: 10px 12px; border: 2px solid var(--accent); border-radius: 14px; background: var(--card); }
+.target .lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.target b { font-family: var(--display); font-size: 22px; line-height: 1.1; }
+.target select.inp { font-family: var(--display); font-size: 20px; font-weight: 700; }
+.target small { font-size: 12px; color: var(--muted); }
+.check:has(> .av) { grid-template-columns: 28px auto minmax(0, 1fr); }
+.tcheck { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.tcheck:first-of-type { border-top: 0; }
+.tcheck input { width: 22px; height: 22px; accent-color: var(--text); flex: none; }
+.tcheck b { font-size: 17px; }
+.tcheck small { margin-left: auto; }
+.tcheck.off { opacity: .5; }
