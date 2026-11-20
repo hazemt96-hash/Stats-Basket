@@ -348,7 +348,7 @@ function vSaison() {
   const rows = seasonPlayerRows(tm.id, ui.season, ui.range);
   const mode = ui.statMode, per = r => mode === "avg" ? r.gp : mode === "p40" ? (r.timedMin / 60 / 40 || 0) : 1;
   const v = (r, x) => { const q = per(r); return q > 0 ? x / q : 0; };
-  const COLS = [["min", "Min"], ["pts", "Pts"], ["reb", "Reb"], ["ast", "Pas"], ["stl", "Int"], ["blk", "Ctr"], ["tov", "BP"], ["pf", "F"], ["pir", "PIR", "pir"], ["fgp", "% tir"], ["tpp", "3 pts"], ["ftp", "LF"], ["efg", "eFG", "efg"], ["ts", "TS", "ts"], ["usg", "USG", "usg"], ["pm", "+/-", "pm"]];
+  const COLS = [["min", "Min"], ["pts", "Pts"], ["reb", "Reb"], ["ast", "PD"], ["stl", "Int"], ["blk", "Ctr"], ["tov", "BP"], ["pf", "F"], ["pir", "PIR", "pir"], ["fgp", "% tir"], ["tpp", "3 pts"], ["ftp", "LF"], ["efg", "eFG", "efg"], ["ts", "TS", "ts"], ["usg", "USG", "usg"], ["pm", "+/-", "pm"]];
   const t5 = seasonTeamStats(tm.id, ui.season, "season");
   const cell = (r, k) => {
     const x = r.d;
@@ -388,7 +388,7 @@ function vSaison() {
   <div class="sec">${t("Joueurs")}</div>
   <div class="seg"><button data-a="statmode" data-n="avg" aria-pressed="${mode === "avg"}">${t("Moyennes")}</button><button data-a="statmode" data-n="tot" aria-pressed="${mode === "tot"}">${t("Totaux")}</button><button data-a="statmode" data-n="p40" aria-pressed="${mode === "p40"}"${timedMs.length ? "" : " disabled"}>${t("Sur 40 min")}</button></div>
   <div class="card"><div class="tw"><table><thead><tr><th>${t("Joueur")}</th><th>${t("MJ")}</th>${COLS.map(([k, n, info]) => `<th data-a="sort" data-n="${k}" class="${ui.sort === k ? "sorted" : ""}">${esc(t(n))}${ui.sort === k ? " ▾" : ""}${info ? ih(info) : ""}</th>`).join("")}</tr></thead>
-  <tbody>${rows.map(r => `<tr data-a="player" data-id="${r.p.id}"><td><b>${esc(dispName(r.p, 1))}</b></td><td>${r.gp}</td>${COLS.map(([k]) => `<td>${cell(r, k)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>
+  <tbody>${rows.map(r => `<tr data-a="player" data-id="${r.p.id}"${mode === "p40" && r.timedMin < LOW_MIN ? ' class="low"' : ""}><td><b>${esc(dispName(r.p, 1))}</b></td><td>${r.gp}</td>${COLS.map(([k]) => `<td>${cell(r, k)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${mode === "p40" && rows.some(r => r.timedMin < LOW_MIN) ? `<p class="muted small" style="margin:6px 0 0">${t("En gris : moins de 40 minutes jouées, chiffres à prendre avec prudence.")}</p>` : ""}</div>
   <p class="muted small" style="margin:0">${t("Touche un titre pour trier, un joueur pour sa fiche. Un absent ne compte pas comme un 0.")}</p>
   <div class="row" style="padding:0;border:0"><span class="sec grow" style="margin:0">${t("Cinq et duos")}${ih("lineups")}</span><div class="seg" style="width:auto">${[["best", "Meilleurs"], ["worst", "Moins bons"]].map(([k, l]) => `<button class="${(ui.luSort || "best") === k ? "on" : ""}" data-a="lusort" data-n="${k}">${t(l)}</button>`).join("")}</div></div>
   <div class="sec">${t("Cinq")}</div>
@@ -431,6 +431,7 @@ function vReglages() {
   <p class="muted small" style="margin:0">${POSITIONS[S.lang].map((x, i) => `${S.pos === "num" ? i + 1 : x[0]} = ${esc(x[1])}`).join(" · ")}</p>
   <div class="sec">${t("Saisie")}</div>
   <div class="card">
+    <div class="row" style="flex-wrap:wrap"><span class="grow">${t("Saisie adverse")}<br><span class="muted small">${t("Par défaut pour les nouveaux matchs")}</span></span><div class="seg" style="width:100%">${OPP_MODES.map(k => `<button data-a="set" data-k="oppMode" data-n="${k}" aria-pressed="${(S.oppMode || "simple") === k}">${t(OPP_MODE_INFO[k][0])}</button>`).join("")}</div></div>
     <button class="row" data-a="chronoset"><span class="grow">${t("Mode de chrono")}<br><span class="muted small">${t(CHRONO_INFO[S.chrono][0])}</span></span><span class="chev">›</span></button>
     ${[["fast", "Bouton contre-attaque"], ["fd", "Bouton fautes provoquées"], ["ba", "Bouton contres subis"]].map(([k, n]) => `<div class="row"><span class="grow">${t(n)}</span><button class="switch" role="switch" data-a="toggle" data-k="${k}" aria-checked="${!!S[k]}" aria-label="${esc(t(n))}"></button></div>`).join("")}
     <div class="row"><span class="grow">${t("Affichage de la saisie")}<br><span class="muted small">${t("Vertical ou horizontal : l'écran suit la rotation de l'appareil.")}</span></span><select class="inp" style="width:auto" data-change="layout" aria-label="${esc(t("Affichage de la saisie"))}">${LAYOUTS.map(([k, n]) => `<option value="${k}"${S.layout === k ? " selected" : ""}>${esc(t(n))}</option>`).join("")}</select></div>
@@ -486,7 +487,9 @@ function vNewMatch() {
   <div class="field"><label for="date">${t("Date")}</label><input class="inp" id="date" type="date" value="${date}" data-change="date"></div>
   <div class="sec">${t("Chrono pour ce match")}</div>
   <div class="seg4">${CHRONOS.map(k => `<button data-a="formchrono" data-n="${k}" aria-pressed="${chrono === k}">${t(CHRONO_INFO[k][0].replace("Chrono ", "").replace(/^./, c => c.toUpperCase()))}<small>${t(CHRONO_SHORT[k])}</small></button>`).join("")}</div>
-  <button class="link" data-a="topic" data-n="chrono">${t("C'est quoi la différence ?")}</button>`}
+  <button class="link" data-a="topic" data-n="chrono">${t("C'est quoi la différence ?")}</button>
+  <div class="sec">${t("Saisie adverse")}</div>
+  <div class="seg">${OPP_MODES.map(k => `<button data-a="formoppmode" data-n="${k}" aria-pressed="${(ui.form.oppMode || S.oppMode || "simple") === k}">${t(OPP_MODE_INFO[k][0])}<small>${t(OPP_MODE_INFO[k][1])}</small></button>`).join("")}</div>`}
   <div class="sec">${t("Joueurs présents et numéros du jour")}</div>
   <div class="card">${list.length ? list.map(p => `<div class="check"><input type="checkbox" id="c-${p.id}" aria-label="${esc(fullName(p))}"${checked(p.id) ? " checked" : ""}><label for="c-${p.id}">${esc(fullName(p))} ${posTags(p)}</label><input class="inp" id="n-${p.id}" inputmode="numeric" maxlength="3" aria-label="${esc(t("Numéro de {n}", { n: fullName(p) }))}" value="${editing ? (rosterOf(editing, p.id) || {}).no ?? "" : lastNo[p.id] ?? ""}"></div>`).join("") : `<p class="empty">${t("Ajoute d'abord des joueurs à l'effectif de cette saison.")}</p>`}</div>
   <button class="btn main big" data-a="savematch">${editing ? t("Enregistrer") : t("Créer le match")}</button>`;
@@ -506,6 +509,7 @@ document.addEventListener("touchend", e => {
   swipe0 = null;
   if (Math.abs(dx) > 70 && Math.abs(dy) < 45) pnav(dx < 0 ? 1 : -1);
 }, { passive: true });
+const LOW_MIN = 40 * 60;
 function vPlayer() {
   const p = playerById(ui.playerId), tm = team();
   const teamsOf = db.teams.filter(x => db.matches.some(m => m.teamId === x.id && m.stats[p.id]) || Object.values(x.seasons).some(s => s.players.includes(p.id)));
@@ -526,23 +530,28 @@ function vPlayer() {
   <div class="seg">${teamsOf.map(x => `<button data-a="ptab" data-n="${x.id}" aria-pressed="${ui.ptab === x.id}">${esc(x.name)}</button>`).join("")}${teamsOf.length > 1 ? `<button data-a="ptab" data-n="club" aria-pressed="${ui.ptab === "club"}">${t("Total club")}</button>` : ""}</div>
   <div class="btns">${seasonSelect()}<span class="muted small" style="align-self:center">${played.length} ${t("matchs joués")}${timedMin ? " · " + fmtClock(timedMin / gp) + " " + t("min/m") : ""}</span></div>
   ${played.length ? `<div class="kpis">
-    <div class="kpi"><b>${dec(sum.pts / gp)}</b><span>${t("Points")}</span></div><div class="kpi"><b>${dec(sum.reb / gp)}</b><span>${t("Rebonds")}</span></div><div class="kpi"><b>${dec(sum.ast / gp)}</b><span>${t("Passes")}</span></div>
+    <div class="kpi"><b>${dec(sum.pts / gp)}</b><span>${t("Points")}</span></div><div class="kpi"><b>${dec(sum.reb / gp)}</b><span>${t("Rebonds")}</span></div><div class="kpi"><b>${dec(sum.ast / gp)}</b><span>${t("Passes décisives")}</span></div>
     <div class="kpi"><b>${dec(sum.stl / gp)}</b><span>${t("Interceptions")}</span></div><div class="kpi"><b>${dec(sum.pir / gp)}</b><span>PIR</span>${ib("pir", [[dec(sum.pir / gp), t("Saison")], [dec(last5.pir / g5), t("5 derniers")]])}</div><div class="kpi"><b>${pctTxt(TS(sum))}</b><span>TS</span>${ib("ts", [[pctTxt(TS(sum)), t("Saison")], [pctTxt(TS(last5)), t("5 derniers")]])}</div>
     <div class="kpi"><b>${dec(sum.tov / gp)}</b><span>${t("Balles perdues")}</span></div><div class="kpi"><b>${dec(sum.pf / gp)}</b><span>${t("Fautes")}</span></div><div class="kpi"><b>${signedDec(sum.pm / gp)}</b><span>+/-</span>${ib("pm", [])}</div>
     <div class="kpi"><b>${dec(sum.blk / gp)}</b><span>${t("Contres")}</span></div><div class="kpi"><b>${dec(sum.orb / gp)}</b><span>${t("Reb. off.")}</span></div><div class="kpi"><b>${dec(sum.fd / gp)}</b><span>${t("Fautes prov.")}</span></div>
   </div>
+  ${timedMin ? (() => { const st = derive(played.filter(timed).reduce((a, m) => addInto(a, playerTotal(m, p.id)), blank())), k = 40 / (timedMin / 60), low = timedMin < LOW_MIN, cols = [["pts", "Pts"], ["reb", "Reb"], ["ast", t("PD")], ["stl", t("Int")], ["tov", t("BP")], ["pf", t("F")]];
+    return `<div class="sec">${t("Par match et sur 40 min")}</div><div class="card"><table class="p40"><thead><tr><th></th>${cols.map(([, n]) => `<th>${n}</th>`).join("")}</tr></thead><tbody>
+    <tr><td class="muted">${t("Par match")}</td>${cols.map(([c]) => `<td>${dec(sum[c] / gp)}</td>`).join("")}</tr>
+    <tr class="${low ? "low" : "strong"}"><td>${t("Sur 40 min")}</td>${cols.map(([c]) => `<td>${dec(st[c] * k)}</td>`).join("")}</tr></tbody></table>
+    ${low ? `<p class="warnline">⚠ ${t("Peu de minutes ({n} min au total) : à prendre avec prudence.", { n: Math.round(timedMin / 60) })}</p>` : ""}</div>`; })() : ""}
   <div class="sec">${t("Forme : 5 derniers matchs contre la saison")}</div>
-  <div class="card"><table><thead><tr><th></th><th>Pts</th><th>Reb</th><th>${t("Pas")}</th><th>PIR</th><th>TS</th></tr></thead><tbody>
+  <div class="card"><table><thead><tr><th></th><th>Pts</th><th>Reb</th><th>${t("PD")}</th><th>PIR</th><th>TS</th></tr></thead><tbody>
     <tr><td>${t("Saison")}</td><td>${dec(sum.pts / gp)}</td><td>${dec(sum.reb / gp)}</td><td>${dec(sum.ast / gp)}</td><td>${dec(sum.pir / gp)}</td><td>${pctTxt(TS(sum))}</td></tr>
     <tr><td>${t("5 derniers")}</td>${[["pts"], ["reb"], ["ast"], ["pir"]].map(([k]) => { const a = last5[k] / g5, b = sum[k] / gp; return `<td class="${a > b + .5 ? "pos" : a < b - .5 ? "neg" : ""}">${dec(a)}</td>`; }).join("")}<td>${pctTxt(TS(last5))}</td></tr></tbody></table></div>
   <div class="sec">${t("Réussite par zone")}</div>
   <div class="zones">${SHOTS.map(s => { const x = safe(sum[s.m], sum[s.a]); return `<div class="zone"><b>${pctTxt(x)}</b><span>${t(s.l)} · ${sum[s.m]}/${sum[s.a]}</span><div class="bz"><i style="width:${Math.round(x * 100)}%"></i></div></div>`; }).join("")}</div>
   <div class="card"><div class="sec" style="margin:0 0 4px">${t("Points par match")}</div>${spark(played.map(m => derive(playerTotal(m, p.id)).pts), played.map(m => String(derive(playerTotal(m, p.id)).pts)))}</div>
   <div class="sec">${t("Ses matchs")}</div>
-  <div class="card">${[...played].reverse().map(m => { const d = derive(playerTotal(m, p.id)); return `<button class="row" data-a="report" data-id="${m.id}"><span class="grow"><b>${esc(m.opponent)}</b> <span class="muted small">${fmtDate(m.date)}</span></span><span class="small">${d.pts} pts · ${d.reb} reb · ${d.ast} ${t("pas")} · PIR ${d.pir}</span></button>`; }).join("")}</div>`
+  <div class="card">${[...played].reverse().map(m => { const d = derive(playerTotal(m, p.id)); return `<button class="row" data-a="report" data-id="${m.id}"><span class="grow"><b>${esc(m.opponent)}</b> <span class="muted small">${fmtDate(m.date)}</span></span><span class="small">${d.pts} pts · ${d.reb} reb · ${d.ast} ${t("pd")} · PIR ${d.pir}</span></button>`; }).join("")}</div>`
   : `<p class="empty">${t("Pas encore de match sur cette saison.")}</p>`}
   <div class="sec">${t("Carrière au club")}</div>
-  <div class="card"><div class="tw"><table><thead><tr><th>${t("Saison")}</th><th>${t("Équipe")}</th><th>${t("MJ")}</th><th>Pts</th><th>Reb</th><th>${t("Pas")}</th><th>PIR</th></tr></thead><tbody>
+  <div class="card"><div class="tw"><table><thead><tr><th>${t("Saison")}</th><th>${t("Équipe")}</th><th>${t("MJ")}</th><th>Pts</th><th>Reb</th><th>${t("PD")}</th><th>PIR</th></tr></thead><tbody>
   ${Object.values(career).sort((a, b) => b.se.localeCompare(a.se)).map(c => { const d = derive(c.sum), lv = c.tm ? teamSeason(c.tm, c.se).level : ""; return `<tr><td>${c.se}</td><td>${esc(c.tm ? c.tm.name : "?")}${lv ? " · " + esc(lv) : ""}</td><td>${c.gp}</td><td>${dec(d.pts / c.gp)}</td><td>${dec(d.reb / c.gp)}</td><td>${dec(d.ast / c.gp)}</td><td>${dec(d.pir / c.gp)}</td></tr>`; }).join("") || `<tr><td colspan="7" class="muted">-</td></tr>`}
   </tbody></table></div></div>
   <div class="btns">${can ? `<button class="btn" data-a="editplayer" data-id="${p.id}">${t("Modifier")}</button>` : "<span></span>"}<button class="btn" data-a="shareplayer" data-id="${p.id}">${t("Partager")}</button></div>
@@ -559,20 +568,24 @@ function vEditPlayer() {
   <div class="field"><label for="pl">${t("Nom")}</label><input class="inp" id="pl" value="${esc(ui.form.last ?? p.last)}" autocomplete="off"></div>
   <div class="field"><label for="pn">${t("Nom affiché (facultatif)")}</label><input class="inp" id="pn" value="${esc(ui.form.nick ?? p.nick ?? "")}" autocomplete="off" maxlength="16" placeholder="${esc(dispName({ ...p, nick: "", first: ui.form.first ?? p.first ?? "", last: ui.form.last ?? p.last ?? "" }) || t("ex. Léa B."))}"><p class="muted small" style="margin:4px 0 0">${t("Utile si deux joueurs ont le même prénom. Sinon l'appli les distingue toute seule : Léa M., Léa D.")}</p></div>
   <div class="field"><span class="lbl">${t("Catégorie")}</span><div class="seg">${CATS.map(c => `<button data-a="formsex" data-n="${c}" aria-pressed="${(ui.form.sex || p.sex) === c}">${t(c === "F" ? "Féminin" : "Masculin")}</button>`).join("")}</div></div>
-  <div class="field"><span class="lbl">${t("Positions (une ou deux)")}</span><div class="poschips">${[1, 2, 3, 4, 5].map(n => `<button data-a="formpos" data-n="${n}" aria-pressed="${pos.includes(n)}" title="${esc(posName(n))}">${posLabel(n)}</button>`).join("")}</div></div>
+  <div class="field"><span class="lbl">${t("Positions (de une à cinq)")}</span><div class="poschips">${[1, 2, 3, 4, 5].map(n => `<button data-a="formpos" data-n="${n}" aria-pressed="${pos.includes(n)}" title="${esc(posName(n))}">${posLabel(n)}</button>`).join("")}</div></div>
   <button class="btn main big" data-a="saveplayer">${t("Enregistrer")}</button>
   ${ui.editPlayer && isAdmin() && !db.matches.some(m => m.stats[ui.editPlayer]) ? `<button class="btn danger" data-a="deleteplayer">${t("Supprimer du club")}</button>` : ""}`;
 }
 function vPickPlayers() {
   const tm = team(), se = ui.season, inTeam = new Set(teamSeason(tm, se).players);
   const q = low(ui.form.q || "");
-  const list = db.players.filter(p => !inTeam.has(p.id) && (ui.form.allsex || p.sex === tm.cat) && (!q || low(fullName(p)).includes(q))).sort((a, b) => a.first.localeCompare(b.first));
+  const list = db.players.filter(p => !inTeam.has(p.id) && catOk(p, tm) && (!q || low(fullName(p)).includes(q))).sort((a, b) => a.first.localeCompare(b.first));
   return `<p class="title">${t("Ajouter du club")}</p><p class="muted small" style="margin:0">${esc(tm.name)} · ${se}</p>
   <input class="inp" id="pq" placeholder="${esc(t("Rechercher un nom"))}" value="${esc(ui.form.q || "")}" data-input="pq">
-  <div class="row" style="border:0"><span class="grow small">${t("Afficher aussi l'autre catégorie")}</span><button class="switch" role="switch" data-a="pickall" aria-checked="${!!ui.form.allsex}" aria-label="${esc(t("Afficher aussi l'autre catégorie"))}"></button></div>
+  <p class="muted small" style="margin:0">${t("Seuls les joueurs de catégorie {c} sont proposés.", { c: catName(tm.cat) })}</p>
   <div class="card">${list.length ? list.map(p => `<label class="check"><input type="checkbox" data-pick="${p.id}"${ui.pick.includes(p.id) ? " checked" : ""}>${avatar(p, "sm")}<span>${esc(fullName(p))} ${posTags(p)}<br><span class="muted small">${esc(playerTeamsLabel(p.id, se) || t("Sans équipe cette saison"))}</span></span></label>`).join("") : `<p class="empty">${t("Aucun joueur à ajouter.")}</p>`}</div>
   <button class="btn main big" data-a="addpicked">${t("Ajouter la sélection")}</button>`;
 }
+/* Catégorie : un joueur masculin ne joue que dans une équipe masculine, et une joueuse dans une équipe féminine */
+const catOk = (p, tm) => !tm || !tm.cat || !p || !p.sex || p.sex === tm.cat;
+const catName = c => t(c === "M" ? "masculine" : "féminine");
+function teamsOfPlayer(pid) { return db.teams.filter(x => Object.values(x.seasons || {}).some(s => (s.players || []).includes(pid))); }
 function playerTeamsLabel(pid, se) { return db.teams.filter(x => teamSeason(x, se).players.includes(pid)).map(x => x.name).join(" · "); }
 function vClubPlayers() {
   const f = ui.filters, q = low(f.q);
@@ -705,6 +718,7 @@ function readOldExcel(file) {
     try { x = parseOldExcel(new Uint8Array(fr.result)); } catch (e) { toast(t("Ce fichier n'est pas un Excel de match de l'ancienne appli")); return; }
     const tm = db.teams.find(y => normName(y.name) === normName(x.teamName) && canEditTeam(y.id)) || (canEditTeam(ui.teamId) ? team() : db.teams.find(y => canEditTeam(y.id)));
     x.teamId = tm ? tm.id : (isAdmin() ? "new" : "");
+    x.newCat = /masc|\bm\b|garçon|homme|seniors? m/i.test(x.teamName) ? "M" : "F";
     x.players.forEach(p => {
       const found = findClubPlayer(p.name);
       p.pid = found ? found.id : null;
@@ -715,32 +729,46 @@ function readOldExcel(file) {
   };
   fr.readAsArrayBuffer(file);
 }
+function impCat(x) { return x.teamId === "new" ? x.newCat : ((db.teams.find(y => y.id === x.teamId) || {}).cat || ""); }
+function impResolve(x) {
+  const cat = impCat(x);
+  x.players.forEach(p => {
+    const found = findClubPlayer(p.name) || findClubPlayer(p.first + " " + p.last);
+    p.pid = found && catOk(found, { cat }) ? found.id : null;
+    p.conflict = found && !catOk(found, { cat }) ? found : null;
+  });
+  return x.players.filter(p => p.conflict);
+}
 function vImportXl() {
   const x = ui.imp;
   if (!x) return `<p class="empty">-</p>`;
+  const conflicts = impResolve(x);
   const teams = db.teams.filter(y => canEditTeam(y.id));
   const us = x.players.reduce((s, p) => s + p.q.reduce((a, v) => a + 2 * (v.rm + v.mm) + 3 * v.tm + v.fm, 0), 0), them = x.opp.reduce((a, b) => a + b, 0);
   const dup = db.matches.some(m => m.teamId === x.teamId && m.date === x.date && normName(m.opponent) === normName(x.opponent));
   return `<p class="title">${t("Importer un match")}</p>
   <div class="card help"><p>${t("Vérifie les informations, puis touche Importer. Le match, et les joueurs qui n'existent pas encore, sont ajoutés au club.")}</p></div>
   <div class="card"><div class="field"><label>${t("Équipe")}</label><select class="inp" data-change="impteam">${teams.map(y => `<option value="${y.id}"${y.id === x.teamId ? " selected" : ""}>${esc(y.name)}</option>`).join("")}${isAdmin() ? `<option value="new"${x.teamId === "new" ? " selected" : ""}>${t("Nouvelle équipe")} : ${esc(x.teamName || "?")}</option>` : ""}</select></div>
+  ${x.teamId === "new" ? `<div class="field"><span class="lbl">${t("Catégorie")}</span><div class="seg">${CATS.map(c => `<button data-a="impcat" data-n="${c}" aria-pressed="${x.newCat === c}">${t(c === "F" ? "Féminin" : "Masculin")}</button>`).join("")}</div></div>` : ""}
   <div class="field"><label for="impopp">${t("Adversaire")}</label><input class="inp" id="impopp" value="${esc(x.opponent)}" data-input="impopp"></div>
   <div class="field"><label for="impdate">${t("Date")}</label><input class="inp" id="impdate" type="date" value="${esc(x.date)}" data-change="impdate"></div>
   <div class="row"><span class="grow">${t("Score")}</span><b>${us} - ${them}</b></div></div>
   ${dup ? `<div class="box warn"><b>${t("Déjà importé ?")}</b>${t("Un match contre {o} le {d} existe déjà dans cette équipe.", { o: x.opponent, d: fmtDate(x.date) })}</div>` : ""}
   <div class="sec">${t("Joueurs")}</div>
-  <div class="card">${x.players.map((p, i) => `<div class="row"><span class="grow"><b>${t("N°")}${p.no} ${esc(p.pid ? fullName(playerById(p.pid)) : `${p.first} ${p.last}`)}</b><br><span class="muted small">${p.pid ? t("Déjà dans le club") : t("Nouveau joueur")}</span></span>${p.pid ? "" : `<button class="btn" data-a="impswap" data-n="${i}" title="${esc(t("Inverser prénom et nom"))}">${t("Prénom ⇄ Nom")}</button>`}</div>`).join("")}</div>
+  <div class="card">${x.players.map((p, i) => `<div class="row"><span class="grow"><b>${t("N°")}${p.no} ${esc(p.pid ? fullName(playerById(p.pid)) : `${p.first} ${p.last}`)}</b><br><span class="${p.conflict ? "neg small" : "muted small"}">${p.conflict ? t("Déjà dans le club en catégorie {c} : impossible dans cette équipe", { c: catName(p.conflict.sex) }) : p.pid ? t("Déjà dans le club") : t("Nouveau joueur")}</span></span>${p.pid ? "" : `<button class="btn" data-a="impswap" data-n="${i}" title="${esc(t("Inverser prénom et nom"))}">${t("Prénom ⇄ Nom")}</button>`}</div>`).join("")}</div>
   <p class="muted small">${t("Si un nom est inversé (« Bidart Louise »), touche Prénom ⇄ Nom.")}</p>
-  <button class="btn main big" data-a="impdo"${x.teamId ? "" : " disabled"}>${t("Importer")}</button>`;
+  ${conflicts.length ? `<div class="box warn"><b>${t("Catégorie différente")}</b>${t("Un joueur masculin ne peut jouer que dans une équipe masculine, et une joueuse que dans une équipe féminine. Choisis la bonne équipe.")}</div>` : ""}
+  <button class="btn main big" data-a="impdo"${x.teamId && !conflicts.length ? "" : " disabled"}>${t("Importer")}</button>`;
 }
 function doImportXl() {
   const x = ui.imp;
+  if (impResolve(x).length) { render(); return; }
   const opp = (document.getElementById("impopp") || {}).value;
   if (opp != null) x.opponent = opp.trim() || x.opponent;
   let tm;
   if (x.teamId === "new") {
     if (!isAdmin()) return;
-    tm = { id: uid(), name: x.teamName || t("Équipe"), cat: "", seasons: {} };
+    tm = { id: uid(), name: x.teamName || t("Équipe"), cat: x.newCat || "F", seasons: {} };
     db.teams.push(tm);
   } else tm = db.teams.find(y => y.id === x.teamId);
   if (!tm || !canEditTeam(tm.id)) { toast(t("Accès refusé : tu n'as pas les droits pour cette équipe.")); return; }
@@ -823,6 +851,19 @@ function reportNotes(m, R) {
   if (d.stl >= 10) good.push(t("{n} interceptions", { n: d.stl }));
   return { good: good.slice(0, 3), bad: bad.slice(0, 3) };
 }
+function oppCard(m, d) {
+  const o = oppDetail(m), ours = d.fga + .44 * d.fta - d.orb + d.tov, drb = Math.max(0, d.reb - d.orb);
+  const pc = v => (v == null ? "-" : Math.round(v * 100) + " %");
+  const row = (l, a, b) => `<tr><td class="muted">${l}</td><td>${a}</td><td>${b}</td></tr>`;
+  return `<div class="sec">${t("Nous et l'adversaire")}</div><div class="card"><table class="p40"><thead><tr><th></th><th>${t("Nous")}</th><th>${esc(m.opponent)}</th></tr></thead><tbody>
+  ${row(t("Possessions"), Math.round(ours), Math.round(o.poss))}
+  ${row(t("Adresse (eFG)"), pc(eFG(d)), pc(o.efg))}
+  ${row(t("Tirs"), `${d.fgm}/${d.fga}`, `${o.fgm}/${o.fga}`)}
+  ${row(t("Lancers francs"), `${d.fm}/${d.fta}`, `${o.ftm}/${o.fta}`)}
+  ${row(t("Balles perdues"), d.tov, o.tov)}
+  ${row(t("Rebonds off."), d.orb, o.orb)}
+  </tbody></table><p class="muted small" style="margin:6px 0 0">${t("Rebonds défensifs : {p} des tirs ratés adverses récupérés.", { p: `<b>${pc(drb + o.orb ? drb / (drb + o.orb) : null)}</b>` })}</p></div>`;
+}
 function vReport() {
   const m = db.matches.find(x => x.id === ui.reportId);
   if (!m) return `<p class="empty">-</p>`;
@@ -835,6 +876,8 @@ function vReport() {
   <div class="hero"><div class="meta"><span>${esc(tm ? tm.name : "")} · ${fmtDate(m.date)}</span><span>${t("contre")} ${esc(m.opponent)}</span></div>
   <div class="score-big">${d.pts} – ${R.o} <span class="wl ${res === "L" ? "l" : res === "N" ? "n" : ""}">${t(res === "W" ? "Victoire" : res === "L" ? "Défaite" : "Nul")}</span></div>
   <div class="qstrip">${qsP.map(q => `<div>${QS[q]}<b>${derive(teamQuarter(m, q)).pts}-${m.opp[q]}</b></div>`).join("")}</div></div>
+  ${m.oppMode === "mod" || m.oppMode === "adv" ? oppCard(m, d) : ""}
+  ${m.oppMode === "adv" && oppPlayers(m).length ? `<div class="sec">${t("Joueuses adverses")}</div><div class="card"><div class="tw"><table class="lutable"><thead><tr><th>${t("N°")}</th><th>Pts</th><th>${t("Tirs")}</th><th>3 pts</th><th>${t("LF")}</th><th>${t("BP")}</th><th>${t("Reb. off.")}</th><th>${t("F")}</th></tr></thead><tbody>${oppPlayers(m).map(x => `<tr><td class="ids">${x.no}</td><td><b>${x.pts}</b></td><td>${x.fgm}/${x.fga}</td><td>${x.tpm}</td><td>${x.ftm}/${x.fta}</td><td>${x.tov}</td><td>${x.orb}</td><td class="${x.pf >= 5 ? "neg" : ""}">${x.pf}</td></tr>`).join("")}</tbody></table></div><p class="muted small" style="margin:6px 0 0">${t("Seulement les actions où un numéro a été noté.")}</p></div>` : ""}
   <div class="sec">${t("Les 4 facteurs")}${ih("factors")}</div>
   <div class="kpis" style="grid-template-columns:1fr 1fr">
     ${factor("eFG", eFG(d), pctTxt(eFG(d)), bd ? eFG(bd) : null, bd ? pctTxt(eFG(bd)) : "", true, .02, "efg", [[pctTxt(eFG(d)), t("Ce match")], [bd ? pctTxt(eFG(bd)) : "-", t("Moyenne saison")]])}
@@ -843,7 +886,7 @@ function vReport() {
     ${factor(t("Lancers francs"), safe(d.ftm, d.fta), `${d.ftm}/${d.fta}`, bd && bd.fta ? safe(bd.ftm, bd.fta) : null, bd ? pctTxt(safe(bd.ftm, bd.fta)) : "", true, .05, "", [])}
   </div>
   <div class="sec">${t("Leaders")}</div>
-  <div class="leaders">${lead("pts", t("points"), x => x.pts)}${lead("reb", t("rebonds"), x => x.reb)}${lead("ast", t("passes"), x => x.ast)}${lead("pir", "PIR", x => x.pir)}${lead("pm", "+/-", x => x.pm)}${lead("stl", t("interceptions"), x => x.stl)}</div>
+  <div class="leaders">${lead("pts", t("points"), x => x.pts)}${lead("reb", t("rebonds"), x => x.reb)}${lead("ast", t("passes décisives"), x => x.ast)}${lead("pir", "PIR", x => x.pir)}${lead("pm", "+/-", x => x.pm)}${lead("stl", t("interceptions"), x => x.stl)}</div>
   ${notes.good.length ? `<div class="note good"><b>${t("Points forts")}</b><ul>${notes.good.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
   ${notes.bad.length ? `<div class="note bad"><b>${t("À travailler")}</b><ul>${notes.bad.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
   </div>
@@ -860,7 +903,7 @@ function vReport() {
     <div class="kpi"><b>${d.reb}</b><span>${t("Rebonds")}</span></div>
   </div>
   <div class="sec">${t("Joueurs")}</div>
-  <div class="card"><div class="tw"><table><thead><tr><th>${t("Joueur")}</th>${timed(m) ? "<th>Min</th>" : ""}<th>Pts</th><th>Reb</th><th>${t("Pas")}</th><th>${t("Int")}</th><th>${t("BP")}</th><th>${t("F")}</th><th>${t("Tirs")}</th><th>${t("3 pts")}</th><th>${t("LF")}</th><th>+/-</th><th>PIR${ih("pir")}</th></tr></thead><tbody>
+  <div class="card"><div class="tw"><table><thead><tr><th>${t("Joueur")}</th>${timed(m) ? "<th>Min</th>" : ""}<th>Pts</th><th>Reb</th><th>${t("PD")}</th><th>${t("Int")}</th><th>${t("BP")}</th><th>${t("F")}</th><th>${t("Tirs")}</th><th>${t("3 pts")}</th><th>${t("LF")}</th><th>+/-</th><th>PIR${ih("pir")}</th></tr></thead><tbody>
   ${R.players.map(({ r, p, d: x }) => `<tr data-a="player" data-id="${p.id}"><td><b>${r.no}</b> ${esc(dispName(p))}</td>${timed(m) ? `<td>${fmtClock(x.min)}</td>` : ""}<td>${x.pts}</td><td>${x.reb}</td><td>${x.ast}</td><td>${x.stl}</td><td>${x.tov}</td><td class="${x.pf >= 4 ? "neg" : ""}">${x.pf}</td><td>${ratio(x.fgm, x.fga)}</td><td>${ratio(x.tpm, x.tpa)}</td><td>${ratio(x.ftm, x.fta)}</td><td class="${x.pm > 0 ? "pos" : x.pm < 0 ? "neg" : ""}">${signed(x.pm)}</td><td>${x.pir}</td></tr>`).join("")}</tbody></table></div></div>
   <div class="sec">${t("Cinq sur le terrain")}${ih("lineups")}</div>
   <div class="card">${lineupTable(rows.sort((a, b) => (b.pf - b.pa) - (a.pf - a.pa) || b.sec - a.sec).slice(0, 8), id => dispName(playerById(id)), "-")}</div>
@@ -884,12 +927,19 @@ function vLog() {
   return `<p class="title">${t("Journal")} <span class="tag">${m.log.length}</span></p>
   <div class="card">${list.map(e => `<div class="row"><span class="small muted" style="width:62px">${QS[e.q]} ${esc(e.clock || "")}</span><span class="grow small">${esc(logLabel(m, e))}</span>${ui.readonly ? "" : `<button class="btn sm danger" data-a="dellog" data-id="${e.id}" aria-label="${esc(t("Supprimer cette action"))}">✕</button>`}</div>`).join("") || `<p class="empty">${t("Aucune action pour le moment.")}</p>`}</div>`;
 }
+const OPP_MODE_INFO = { simple: ["Simplifiée", "+1 +2 +3"], mod: ["Modérée", "+ tirs ratés, BP, reb. off."], adv: ["Avancée", "+ n° de la joueuse"] };
+/* Ligne sous le chrono : nos fautes d'équipe et celles de l'adversaire, avec l'alerte « bonus » */
+function foulsLine(m, q) {
+  const us = teamFoulsQ(m, q), them = oppFoulsQ(m, q), cls = n => (n >= 5 ? "fneg" : n >= 4 ? "fwarn" : "");
+  return `<span class="${cls(us)}">${t("Fautes éq. {n}", { n: us })}</span> · <span class="${cls(them)}">${t("adv. {n}", { n: them })}${them >= 5 ? " · " + t("Bonus") : ""}</span>`;
+}
 function logLabel(m, e) {
   const no = pid => (rosterOf(m, pid) || {}).no ?? "?";
   if (e.text) return e.text;
   const corr = e.kind === "corr" ? " (" + t("correction") + ")" : "";
   if (e.kind === "sub") return !e.in ? t("N°{a} sort du terrain", { a: no(e.out) }) : e.out ? t("Changement : N°{a} entre, N°{b} sort", { a: no(e.in), b: no(e.out) }) : t("N°{a} entre sur le terrain", { a: no(e.in) });
   if (e.oppPts) return t("Adversaire {n}", { n: signed(e.oppPts) }) + corr;
+  if (e.ox) { const k = OX_KEYS.find(x => x[0] === e.ox); return `${t("Adversaire")} : ${t(k ? k[1] : e.ox)}`; }
   if (e.shot) { let s = `${t("N°")}${no(e.pid)} ${t(SHOT[e.shot].l)} ${t(e.made ? "réussi" : "raté")}${corr}`; const c = (e.changes.find(x => x[0] === e.pid) || [0, {}])[1]; if (c.fbp) s += " · " + t("contre-attaque"); if (c.scp) s += " · " + t("2e chance"); if (c.ptov) s += " · " + t("après interception"); return s; }
   if (e.stat) { const n = [...POS_STATS, ...NEG_STATS].find(x => x[0] === e.stat); return `${t("N°")}${no(e.pid)} ${t(n ? n[1] : e.stat)}${corr}`; }
   return "-";
@@ -907,15 +957,17 @@ function vMatchScreen() {
   const top = `<div class="mt-top"><button class="ic" data-a="leave">${t("Matchs")}</button><div class="mscore">${t0.pts} – ${o}<small>${esc(m.opponent)}</small></div><button class="ic" data-a="undo"${m.log.length && !ro ? "" : " disabled"}>${t("Annuler")}</button><button class="ic" data-a="menu" aria-label="${esc(t("Menu du match"))}">☰</button></div>`;
   const roBar = ro ? `<div class="ro"><span>${CLOUD && m.editor && lockedByOther(m) ? t("Saisie en cours par {n} : lecture seule.", { n: m.editor.name }) : t("Lecture seule.")}</span>${canEditTeam(m.teamId) ? `<button class="btn sm" data-a="takeover">${t("Prendre la main")}</button>` : ""}</div>` : "";
   const opp = `<div class="opp"><span>${t("Adversaire")}</span><button class="m" data-a="opp" data-n="-1" aria-label="${esc(t("Retirer 1 point adverse"))}"${o > 0 && !ro ? "" : " disabled"}>−</button>${[1, 2, 3].map(n => `<button data-a="opp" data-n="${n}"${ro ? " disabled" : ""}>+${n}</button>`).join("")}</div>`;
+  const oxTot = k => (m.ox || []).reduce((s, x) => s + ((x && x[k]) || 0), 0);
+  const oxRow = m.oppMode === "mod" || m.oppMode === "adv" ? `<div class="ox">${OX_KEYS.map(([k, l]) => `<button data-a="ox" data-n="${k}"${ro ? " disabled" : ""}><span>${t(l)}</span><b>${oxTot(k)}</b></button>`).join("")}</div>` : "";
   const q = m.qi, closedQ = m.closed[q];
   let clock;
-  if (m.chrono === "none") clock = `<div class="clock"><button class="q" data-a="quarters">${QS[q]}</button><span class="time" style="font-size:18px">${t("Sans chrono")}<small>${t("Fautes éq. {n}", { n: teamFoulsQ(m, q) })}</small></span><button class="go close" data-a="closeq"${ro ? " disabled" : ""}>${t("Clore")} ${QS[q]}</button></div>`;
+  if (m.chrono === "none") clock = `<div class="clock"><button class="q" data-a="quarters">${QS[q]}</button><span class="time" style="font-size:18px">${t("Sans chrono")}<small>${foulsLine(m, q)}</small></span><button class="go close" data-a="closeq"${ro ? " disabled" : ""}>${t("Clore")} ${QS[q]}</button></div>`;
   else if (m.chrono === "prop") {
     const started = m.real[q] > 0 || m.running;
-    clock = `<div class="clock${!started && !closedQ && !ro ? " stopped" : ""}"><button class="q" data-a="quarters">${QS[q]}</button><span class="time"><span data-clock>${fmtClock(realElapsed(m))}</span><small>${t("temps réel")} · ${t("Fautes éq. {n}", { n: teamFoulsQ(m, q) })}</small></span>${started ? `<button class="go close" data-a="closeq"${ro ? " disabled" : ""}>${t("Clore")} ${QS[q]}</button>` : `<button class="go start" data-a="clock"${ro || closedQ ? " disabled" : ""}>${t("Départ")}</button>`}</div>`;
+    clock = `<div class="clock${!started && !closedQ && !ro ? " stopped" : ""}"><button class="q" data-a="quarters">${QS[q]}</button><span class="time"><span data-clock>${fmtClock(realElapsed(m))}</span><small>${t("temps réel")} · ${foulsLine(m, q)}</small></span>${started ? `<button class="go close" data-a="closeq"${ro ? " disabled" : ""}>${t("Clore")} ${QS[q]}</button>` : `<button class="go start" data-a="clock"${ro || closedQ ? " disabled" : ""}>${t("Départ")}</button>`}</div>`;
   } else {
     const stopped = !m.running && remain(m) > 0 && !closedQ && !ro;
-    clock = `<div class="clock three${stopped ? " stopped" : ""}"><button class="q" data-a="quarters">${QS[q]}</button><span class="time"><span data-clock>${fmtClock(remain(m))}</span><small>${t("Fautes éq. {n}", { n: teamFoulsQ(m, q) })}</small></span><button class="go ${m.running ? "stop" : "start"}" data-a="clock"${ro ? " disabled" : ""}>${t(m.running ? "Stop" : "Départ")}</button><button class="go close" data-a="closeq"${ro ? " disabled" : ""}>${t("Clore")}</button></div>`;
+    clock = `<div class="clock three${stopped ? " stopped" : ""}"><button class="q" data-a="quarters">${QS[q]}</button><span class="time"><span data-clock>${fmtClock(remain(m))}</span><small>${foulsLine(m, q)}</small></span><button class="go ${m.running ? "stop" : "start"}" data-a="clock"${ro ? " disabled" : ""}>${t(m.running ? "Stop" : "Départ")}</button><button class="go close" data-a="closeq"${ro ? " disabled" : ""}>${t("Clore")}</button></div>`;
   }
   const adj = (m.chrono === "guided" || m.chrono === "manual") && !ro ? `<div class="adj">${[[-60, "−1:00"], [-10, "−10 s"], [-1, "−1 s"], [1, "+1 s"], [10, "+10 s"], [60, "+1:00"]].map(([n, l]) => `<button data-a="adj" data-n="${n}">${l}</button>`).join("")}</div>` : "";
   const byNo = [...m.roster].sort((a, b) => a.no - b.no);
@@ -936,8 +988,8 @@ function vMatchScreen() {
   const extraBlock = full ? `<div class="extra"><div class="card"><div class="sec" style="margin:0 0 4px">${t("Totaux équipe")}</div><div class="teamline"><span><b>${ratio(t0.fgm, t0.fga)}</b> ${t("tirs")}</span><span><b>${ratio(t0.tpm, t0.tpa)}</b> 3 pts</span><span><b>${ratio(t0.ftm, t0.fta)}</b> LF</span><span><b>${t0.reb}</b> reb</span><span><b>${t0.ast}</b> pas</span><span><b>${t0.tov}</b> BP</span><span><b>${pctTxt(eFG(t0))}</b> eFG</span></div></div>
     <div class="card"><div class="sec" style="margin:0 0 4px">${t("Dernières actions")}</div>${[...m.log].reverse().slice(0, 5).map(e => `<div class="small" style="padding:3px 0">${QS[e.q]} ${esc(e.clock || "")} · ${esc(logLabel(m, e))}</div>`).join("") || `<span class="muted small">-</span>`}</div></div>` : "";
   const banner = ui.banner ? `<div class="banner" role="status"><span>${t("Chrono arrêté : action notée quand même")}</span><button data-a="relaunch">${t("Relancer")}</button></div>` : "";
-  if (land) return `<div class="mt land"><div class="col">${top}${roBar}${opp}${clock}${adj}${full ? extraBlock : ""}</div><div class="col">${five}${bench}</div><div class="col">${fast ? `<div class="whorow">${who}${fast}</div>` : who}${shots}${countersLand}</div></div>${banner}`;
-  return `<div class="mt">${top}${roBar}${opp}${clock}${adj}${five}${bench}${who}${fast}${shots}${counters}${extraBlock}</div>${banner}`;
+  if (land) return `<div class="mt land"><div class="col">${top}${roBar}${opp}${oxRow}${clock}${adj}${full ? extraBlock : ""}</div><div class="col">${five}${bench}</div><div class="col">${fast ? `<div class="whorow">${who}${fast}</div>` : who}${shots}${countersLand}</div></div>${banner}`;
+  return `<div class="mt">${top}${roBar}${opp}${oxRow}${clock}${adj}${five}${bench}${who}${fast}${shots}${counters}${extraBlock}</div>${banner}`;
 }
 function menuSheet() {
   const m = match();
@@ -962,7 +1014,38 @@ function teamPickSheet() {
 }
 
 /* ---------- Actions de saisie ---------- */
+function askOppNo(m, e) {
+  if (m.oppMode !== "adv" || !e || !e.id) return;
+  const isOpp = (e.kind === "opp" && e.oppPts > 0) || e.ox || (e.stat === "fd" && e.d > 0);
+  if (isOpp) { ui.sheet = { type: "oppno", eid: e.id }; ui.oppNoInput = false; }
+}
+function oppNoLabel(m, e) {
+  if (e.oppPts) return t("Adversaire {n}", { n: signed(e.oppPts) });
+  if (e.ox) { const k = OX_KEYS.find(x => x[0] === e.ox); return t(k ? k[1] : e.ox); }
+  return t("Faute adverse");
+}
+function oppNoSheet() {
+  const m = match(), e = m && m.log.find(x => x.id === ui.sheet.eid);
+  if (!e) return "";
+  const nos = [...new Set([...(m.oppNos || []), ...m.log.filter(x => x.on != null).map(x => x.on)])].sort((a, b) => a - b);
+  const fouls = n => m.log.filter(x => x.on === n && x.stat === "fd" && (x.d || 1) > 0).length;
+  return `<div class="grab"></div><h3>${t("{x} : quel numéro ?", { x: oppNoLabel(m, e) })}</h3>
+  <div class="nopad">${nos.map(n => { const f = fouls(n); return `<button data-a="oppno" data-n="${n}">${n}${f ? `<small class="${f >= 4 ? "fneg" : f >= 3 ? "fwarn" : ""}">${f} f</small>` : ""}</button>`; }).join("")}
+  ${ui.oppNoInput ? "" : `<button class="add" data-a="oppnoadd">+ n°</button>`}<button class="skip" data-a="oppnoskip">${t("Passer")}</button></div>
+  ${ui.oppNoInput ? `<div class="btns" style="margin-top:8px"><input class="inp" id="oppnoin" inputmode="numeric" maxlength="3" placeholder="${esc(t("Numéro"))}" autofocus><button class="btn main" data-a="oppnook">OK</button></div>` : ""}
+  <p class="muted small" style="margin:8px 0 0">${t("Les numéros déjà vus restent proposés. « Passer » enregistre sans numéro.")}</p>`;
+}
+function setOppNo(n) {
+  const m = match(), e = m && ui.sheet && m.log.find(x => x.id === ui.sheet.eid);
+  if (!e) { ui.sheet = null; render(); return; }
+  if (n != null) { e.on = n; m.oppNos = [...new Set([...(m.oppNos || []), n])]; }
+  ui.sheet = null; ui.oppNoInput = false;
+  if (e.stat === "fd" && n != null) { const f = m.log.filter(x => x.on === n && x.stat === "fd" && (x.d || 1) > 0).length; if (f >= 3) toast(t("N°{n} adverse : {f} fautes", { n, f })); }
+  save(); render();
+}
 function afterCommit(m, e, live) {
+  askOppNo(m, e);
+  if (e.stat === "fd" && e.d > 0 && oppFoulsQ(m, e.q) === 5) toast(t("Adversaire à 5 fautes : lancers francs à chaque faute"));
   if (e.kind === "shot") { ui.fast = false; clearTimeout(ui.fastTimer); }
   if (live && m.chrono === "guided" && !m.running && remain(m) > 0 && !m.closed[m.qi]) {
     ui.banner = true; clearTimeout(ui.bannerTimer);
@@ -1106,6 +1189,7 @@ function saveMatchForm() {
   const se = seasonOf(date), ts = tm.seasons[se] = tm.seasons[se] || { level: "", players: [] };
   roster2.forEach(r => { if (!ts.players.includes(r.pid)) ts.players.push(r.pid); });
   const m = newMatch(tm.id, opponent, date, roster2, ui.form.chrono || S.chrono);
+  m.oppMode = ui.form.oppMode || S.oppMode || "simple"; m.ox = QS.map(blankOx);
   db.matches.push(m);
   ui.form = {}; save();
   ui.stack = ["matchs"]; ui.view = "matchs";
@@ -1133,6 +1217,9 @@ function savePlayer() {
   if (!first || !last) { toast(t("Indique le prénom et le nom")); return; }
   let p = ui.editPlayer ? db.players.find(x => x.id === ui.editPlayer) : null;
   if (!p && db.players.some(x => low(x.first) === low(first) && low(x.last) === low(last))) { toast(t("Ce joueur existe déjà dans le club : ajoute-le depuis « Ajouter du club »")); return; }
+  const newSex = ui.form.sex || (p && p.sex) || (team() || {}).cat || "F";
+  if (!ui.editPlayer && ui.form.toTeam && team() && team().cat && newSex !== team().cat) { toast(t("{t} est une équipe {c} : choisis la bonne catégorie.", { t: team().name, c: catName(team().cat) })); return; }
+  if (p) { const bad = teamsOfPlayer(p.id).find(x => x.cat && x.cat !== newSex); if (bad) { toast(t("Impossible : {n} joue dans {t}, une équipe {c}.", { n: p.first, t: bad.name, c: catName(bad.cat) })); return; } }
   if (!p) { p = { id: uid(), first, last, pos: [], sex: "F", photo: "" }; db.players.push(p); }
   p.first = first; p.last = last;
   const nick = (ui.form.nick ?? p.nick ?? "").trim();
@@ -1229,7 +1316,7 @@ function downloadBook(sheets, name) {
   const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   deliver(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), name);
 }
-const statHead = () => [t("Points"), t("Passes"), t("Rebonds"), t("Reb. off."), t("Interceptions"), t("Contres"), t("Balles perdues"), t("Fautes"), t("Fautes prov."), t("Contres subis"), t("Tirs réussis"), t("Tirs tentés"), "% " + t("tirs"), t("Raquette"), "", "%", t("Mi-distance"), "", "%", "3 pts", "", "%", "LF", "", "%", "eFG", "TS", "PIR", t("Pts 2e chance"), t("Pts après interc."), t("Pts contre-attaque")];
+const statHead = () => [t("Points"), t("Passes décisives"), t("Rebonds"), t("Reb. off."), t("Interceptions"), t("Contres"), t("Balles perdues"), t("Fautes"), t("Fautes prov."), t("Contres subis"), t("Tirs réussis"), t("Tirs tentés"), "% " + t("tirs"), t("Raquette"), "", "%", t("Mi-distance"), "", "%", "3 pts", "", "%", "LF", "", "%", "eFG", "TS", "PIR", t("Pts 2e chance"), t("Pts après interc."), t("Pts contre-attaque")];
 const statCells = d => [d.pts, d.ast, d.reb, d.orb, d.stl, d.blk, d.tov, d.pf, d.fd, d.ba, d.fgm, d.fga, P100(safe(d.fgm, d.fga)), d.rm, d.ra, P100(safe(d.rm, d.ra)), d.mm, d.ma, P100(safe(d.mm, d.ma)), d.tm, d.ta, P100(safe(d.tm, d.ta)), d.fm, d.fa, P100(safe(d.fm, d.fa)), P100(eFG(d)), P100(TS(d)), d.pir, d.scp, d.ptov, d.fbp];
 function exportMatch(m) {
   const tm = db.teams.find(x => x.id === m.teamId), R = reportData(m), d = R.d;
@@ -1251,7 +1338,7 @@ function exportSeason(tid) {
   const tm = db.teams.find(x => x.id === tid), rows = seasonPlayerRows(tid, ui.season, "season"), s = seasonTeamStats(tid, ui.season, "season");
   const totals = [[t("Joueur"), t("MJ"), "Min", "+/-", ...statHead()]];
   rows.forEach(r => totals.push([fullName(r.p), r.gp, fmtClock(r.timedMin), r.d.pm, ...statCells(r.d)]));
-  const avg = [[t("Joueur"), t("MJ"), "Min/m", "Pts", "Reb", t("Pas"), t("Int"), t("Ctr"), t("BP"), t("F"), "PIR", "% " + t("tirs"), "3 pts", "LF", "eFG", "TS", "+/-"]];
+  const avg = [[t("Joueur"), t("MJ"), "Min/m", "Pts", "Reb", t("PD"), t("Int"), t("Ctr"), t("BP"), t("F"), "PIR", "% " + t("tirs"), "3 pts", "LF", "eFG", "TS", "+/-"]];
   rows.forEach(r => { const g = r.gp, d = r.d; avg.push([fullName(r.p), g, fmtClock(r.timedMin / g), D1(d.pts / g), D1(d.reb / g), D1(d.ast / g), D1(d.stl / g), D1(d.blk / g), D1(d.tov / g), D1(d.pf / g), D1(d.pir / g), P100(safe(d.fgm, d.fga)), P100(safe(d.tpm, d.tpa)), P100(safe(d.ftm, d.fta)), P100(eFG(d)), P100(TS(d)), D1(d.pm / g)]); });
   const games = [[t("Date"), t("Adversaire"), t("Score"), "eFG", "TS", t("Balles perdues")], ...s.ms.map(m => { const d = derive(teamTotal(m)); return [m.date, m.opponent, `${d.pts}-${oppTotal(m)}`, P100(eFG(d)), P100(TS(d)), d.tov]; }), [], [t("Bilan"), `${s.w} - ${s.l}`]];
   const fives = [[t("Cinq"), t("MJ"), "Min", t("Pour"), t("Contre"), t("Écart")], ...seasonLineups(s.ms).sort((a, b) => (b.pf - b.pa) - (a.pf - a.pa)).map(r => [r.ids.map(id => fullName(playerById(id))).join(", "), r.gp, fmtClock(r.sec), r.pf, r.pa, r.pf - r.pa])];
@@ -1305,7 +1392,7 @@ function render() {
     html = `<div class="app" style="grid-template-rows:auto 1fr"><header class="subbar"><button class="back" data-a="back">‹ ${t("Retour")}</button>${ui.view === "player" && (ui.plist || []).length > 1 ? `<span class="pnav"><button data-a="pnav" data-n="-1" aria-label="${t("Joueur précédent")}">‹</button><span>${ui.plist.indexOf(ui.playerId) + 1}/${ui.plist.length}</span><button data-a="pnav" data-n="1" aria-label="${t("Joueur suivant")}">›</button></span>` : ""}</header><main class="screen">${fn()}</main></div>`;
   }
   if (ui.sheet) {
-    const inner = ui.sheet.type === "info" ? infoSheet(ui.sheet.key, ui.sheet.ctx) : ui.sheet.type === "menu" ? menuSheet() : ui.sheet.type === "quarters" ? quartersSheet() : ui.sheet.type === "teampick" ? teamPickSheet() : "";
+    const inner = ui.sheet.type === "info" ? infoSheet(ui.sheet.key, ui.sheet.ctx) : ui.sheet.type === "menu" ? menuSheet() : ui.sheet.type === "quarters" ? quartersSheet() : ui.sheet.type === "teampick" ? teamPickSheet() : ui.sheet.type === "oppno" ? oppNoSheet() : "";
     html += `<div class="scrim" data-a="closesheet"></div><div class="sheet" role="dialog">${inner}</div>`;
   }
   if (ui.confirm) html += `<div class="dialog-wrap"><div class="dialog" role="alertdialog"><p>${esc(ui.confirm.text)}</p>${ui.confirm.typed ? `<div class="field"><label for="ctyped">${esc(t("Pour confirmer, écris : {w}", { w: "§" })).replace("§", `<b>${esc(ui.confirm.typed)}</b>`)}</label><input class="inp" id="ctyped" autocomplete="off" autocapitalize="off"></div>` : ""}<div class="btns"><button class="btn" data-a="no">${t("Annuler")}</button><button class="btn main" data-a="yes">${esc(ui.confirm.label || t("Confirmer"))}</button></div></div></div>`;
@@ -1341,9 +1428,16 @@ const A = {
   pnav: b => pnav(+b.dataset.n),
   newmatch: () => go("newmatch", { edit: null, form: {} }),
   formchrono: b => { keepMatchForm(); ui.form.chrono = b.dataset.n; render(); },
+  oppno: b => setOppNo(+b.dataset.n),
+  oppnoskip: () => setOppNo(null),
+  oppnoadd: () => { ui.oppNoInput = true; render(); setTimeout(() => { const i = document.getElementById("oppnoin"); if (i) i.focus(); }, 30); },
+  oppnook: () => { const v = val("oppnoin").trim(); if (!/^\d{1,3}$/.test(v)) { toast(t("Numéro")); return; } setOppNo(+v); },
+  formoppmode: b => { keepMatchForm(); ui.form.oppMode = b.dataset.n; render(); },
+  ox: b => { const m = match(); if (!m || ui.readonly) return; const e = { kind: "ox", q: m.qi, ox: b.dataset.n, changes: [] }; commit(m, e); afterCommit(m, e, true); },
   savematch: saveMatchForm,
   report: b => go("report", { reportId: b.dataset.id }),
   impswap: b => { const p = ui.imp.players[+b.dataset.n], parts = (p.first + " " + p.last).trim().split(" "); p.first = parts[parts.length - 1]; p.last = parts.slice(0, -1).join(" "); render(); },
+  impcat: b => { ui.imp.newCat = b.dataset.n; render(); },
   impdo: () => doImportXl(),
   analyses: b => go("analyses", { anaTab: b.dataset.n }),
   anatab: b => { ui.anaTab = b.dataset.n; window.scrollTo(0, 0); render(); },
@@ -1353,7 +1447,7 @@ const A = {
   newplayerclub: () => go("editplayer", { editPlayer: null, form: { toTeam: false }, photo: undefined }),
   editplayer: b => go("editplayer", { editPlayer: b.dataset.id, form: {}, photo: undefined }),
   formsex: b => { keepForm(); ui.form.sex = b.dataset.n; render(); },
-  formpos: b => { keepForm(); const p = ui.editPlayer ? playerById(ui.editPlayer) : { pos: [] }; let pos = [...(ui.form.pos || p.pos || [])]; const n = +b.dataset.n; if (pos.includes(n)) pos = pos.filter(x => x !== n); else if (pos.length < 2) pos.push(n); else toast(t("Deux positions au maximum")); ui.form.pos = pos; render(); },
+  formpos: b => { keepForm(); const p = ui.editPlayer ? playerById(ui.editPlayer) : { pos: [] }; let pos = [...(ui.form.pos || p.pos || [])]; const n = +b.dataset.n; if (pos.includes(n)) pos = pos.filter(x => x !== n); else if (pos.length < 5) pos.push(n); else toast(t("Deux positions au maximum")); ui.form.pos = pos; render(); },
   nophoto: () => { keepForm(); ui.photo = ""; render(); },
   saveplayer: savePlayer,
   deleteplayer: () => {
@@ -1367,7 +1461,7 @@ const A = {
   removefromteam: b => confirmBox(t("Retirer ce joueur de l'effectif de cette saison ? Ses stats sont conservées."), () => { const ts = team().seasons[ui.season]; ts.players = ts.players.filter(x => x !== b.dataset.id); save(); back(); }),
   pickplayers: () => go("pickplayers", { form: {}, pick: [] }),
   pickall: () => { ui.form.allsex = !ui.form.allsex; render(); },
-  addpicked: () => { const ts = team().seasons[ui.season] = team().seasons[ui.season] || { level: "", players: [] }; ui.pick.forEach(id => { if (!ts.players.includes(id)) ts.players.push(id); }); const n = ui.pick.length; ui.pick = []; save(); back(); toast(t("{n} joueur(s) ajouté(s)", { n })); },
+  addpicked: () => { const tm = team(), ts = tm.seasons[ui.season] = tm.seasons[ui.season] || { level: "", players: [] }; ui.pick = ui.pick.filter(id => catOk(playerById(id), tm)); ui.pick.forEach(id => { const p = playerById(id); if (p && !p.sex) p.sex = tm.cat; if (!ts.players.includes(id)) ts.players.push(id); }); const n = ui.pick.length; ui.pick = []; save(); back(); toast(t("{n} joueur(s) ajouté(s)", { n })); },
   clubplayers: () => go("clubplayers"),
   filter: b => { ui.filters[b.dataset.k] = b.dataset.n; render(); },
   teams: () => go("teams"),

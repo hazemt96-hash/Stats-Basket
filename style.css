@@ -419,3 +419,35 @@ tbody tr[data-a] { cursor: pointer; }
 .lutable td.neg { color: var(--neg); font-weight: 700; }
 .bars.wrap .bar { grid-template-columns: minmax(0, 1fr) auto; row-gap: 3px; }
 .bars.wrap .bar .bl { grid-column: 1 / -1; white-space: normal; }
+
+/* Sur 40 min */
+tr.low td, tr.low td b { color: var(--muted); font-weight: 400; }
+table.p40 td, table.p40 th { text-align: right; font-variant-numeric: tabular-nums; }
+table.p40 td:first-child, table.p40 th:first-child { text-align: left; }
+table.p40 tr.strong td { font-weight: 700; }
+.warnline { margin: 8px 0 0; font-size: 12px; color: var(--warn); font-weight: 600; }
+
+/* Saisie adverse modérée */
+.ox { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.ox button { border: 1.5px dashed var(--line); border-radius: 10px; background: none; color: var(--text); min-height: 40px; padding: 3px 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; min-width: 0; }
+.ox button span { font-size: 10.5px; font-weight: 600; color: var(--muted); text-align: center; }
+.ox button b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.ox button:active { transform: scale(.97); }
+.land .ox { grid-template-columns: 1fr 1fr; }
+@media (orientation: landscape) and (max-height: 500px) {
+  .land .ox { gap: 3px; }
+  .land .ox button { min-height: 0; height: 27px; flex-direction: row; justify-content: space-between; padding: 0 6px; gap: 4px; }
+  .land .ox button span { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .land .ox button b { font-size: 13px; }
+}
+
+/* Fautes : orange à 4, rouge à 5 (bonus) */
+.time small .fwarn, .nopad .fwarn { color: var(--warn); font-weight: 700; }
+.time small .fneg, .nopad .fneg { color: var(--neg); font-weight: 700; }
+.clock.stopped .time small .fwarn, .clock.stopped .time small .fneg { color: inherit; text-decoration: underline; }
+/* Clavier des numéros adverses */
+.nopad { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.nopad button { min-height: 48px; border-radius: 10px; background: var(--chip); color: var(--text); font-size: 19px; font-weight: 700; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.nopad button small { font-size: 11px; font-weight: 600; color: var(--muted); }
+.nopad .add { background: none; border: 1.5px dashed var(--line); font-size: 15px; color: var(--muted); }
+.nopad .skip { background: none; border: 1.5px solid var(--line); font-size: 13px; color: var(--muted); }

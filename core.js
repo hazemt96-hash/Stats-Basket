@@ -11,7 +11,7 @@ const SHOTS = [
   { id: "ft", l: "LF", m: "fm", a: "fa", p: 1 },
 ];
 const SHOT = Object.fromEntries(SHOTS.map(s => [s.id, s]));
-const POS_STATS = [["ast", "Passes"], ["reb", "Rebonds"], ["orb", "Reb. off."], ["stl", "Interceptions"], ["blk", "Contres"], ["fd", "Fautes prov."]];
+const POS_STATS = [["ast", "Passes décisives"], ["reb", "Rebonds"], ["orb", "Reb. off."], ["stl", "Interceptions"], ["blk", "Contres"], ["fd", "Fautes prov."]];
 const NEG_STATS = [["tov", "Balles perdues"], ["pf", "Fautes"], ["ba", "Contres subis"]];
 const LIVE = new Set(["rim", "mid", "three", "ast", "reb", "orb", "stl", "blk", "tov", "ba"]);
 const CHRONOS = ["guided", "manual", "prop", "none"];
@@ -29,7 +29,7 @@ function detectLang() {
   const l = (navigator.language || "fr").slice(0, 2);
   return ["fr", "en", "es"].includes(l) ? l : "fr";
 }
-const DEF_SETTINGS = { lang: detectLang(), palette: "maillot", mode: "auto", pos: "abbr", chrono: "guided", fast: true, fd: true, ba: true, layout: "c" };
+const DEF_SETTINGS = { lang: detectLang(), palette: "maillot", mode: "auto", pos: "abbr", chrono: "guided", oppMode: "simple", fast: true, fd: true, ba: true, layout: "c" };
 let S = (() => {
   try { return { ...DEF_SETTINGS, ...JSON.parse(localStorage.getItem("stats-basket-settings") || "{}") }; }
   catch (e) { return { ...DEF_SETTINGS }; }
@@ -52,6 +52,7 @@ function migrate(data) {
   data.matches = data.matches || [];
   data.players = data.players || [];
   data.trash = data.trash || [];
+  (data.matches || []).forEach(m => { if (!m.ox) m.ox = QS.map(blankOx); if (!m.oppMode) m.oppMode = "simple"; });
   data.teams.forEach(t => {
     if (!t.cat) t.cat = /masc/i.test(t.name) ? "M" : "F";
     if (!t.seasons) t.seasons = {};
@@ -164,8 +165,38 @@ function clockLabel(m) {
   return fmtClock(QLEN(m.qi) - m.clocks[m.qi]);
 }
 function teamFoulsQ(m, q) { return m.roster.reduce((s, r) => s + m.stats[r.pid][q].pf, 0); }
+/* Fautes adverses : chaque faute provoquée par une de nos joueuses est une faute de l'adversaire */
+function oppFoulsQ(m, q) { return m.roster.reduce((s, r) => s + ((m.stats[r.pid] && m.stats[r.pid][q] && m.stats[r.pid][q].fd) || 0), 0); }
+/* Mode avancé : stats de chaque joueuse adverse, d'après le numéro noté sur chaque action */
+function oppPlayers(m) {
+  const by = {};
+  const g = n => (by[n] = by[n] || { no: n, pts: 0, fgm: 0, fga: 0, tpm: 0, ftm: 0, fta: 0, tov: 0, orb: 0, pf: 0 });
+  m.log.forEach(e => {
+    if (e.on == null) return;
+    const x = g(e.on);
+    if (e.kind === "opp" && e.oppPts > 0) { x.pts += e.oppPts; if (e.oppPts === 1) { x.ftm++; x.fta++; } else { x.fgm++; x.fga++; if (e.oppPts === 3) x.tpm++; } }
+    if (e.ox === "miss") x.fga++;
+    if (e.ox === "ftmiss") x.fta++;
+    if (e.ox === "tov") x.tov++;
+    if (e.ox === "orb") x.orb++;
+    if (e.stat === "fd" && (e.d || 1) > 0) x.pf++;
+  });
+  return Object.values(by).sort((a, b) => b.pts - a.pts || a.no - b.no);
+}
 
+/* Saisie adverse : simplifiée (points seuls) ou modérée (+ tirs ratés, LF ratés, balles perdues, rebonds offensifs) */
+const OPP_MODES = ["simple", "mod", "adv"];
+const OX_KEYS = [["miss", "Tir raté"], ["ftmiss", "LF raté"], ["tov", "BP adv."], ["orb", "Reb. off. adv."]];
+const blankOx = () => ({ miss: 0, ftmiss: 0, tov: 0, orb: 0 });
+function oppDetail(m) {
+  const o = { p1: 0, p2: 0, p3: 0, miss: 0, ftmiss: 0, tov: 0, orb: 0 };
+  m.log.forEach(e => { if (e.kind === "opp" && e.oppPts > 0) o["p" + e.oppPts] = (o["p" + e.oppPts] || 0) + 1; });
+  (m.ox || []).forEach(x => { if (x) OX_KEYS.forEach(([k]) => { o[k] += x[k] || 0; }); });
+  const fgm = o.p2 + o.p3, fga = fgm + o.miss, fta = o.p1 + o.ftmiss;
+  return { ...o, fgm, fga, fta, ftm: o.p1, tpm: o.p3, pts: oppTotal(m), efg: fga ? (fgm + .5 * o.p3) / fga : null, ft: fta ? o.p1 / fta : null, poss: fga + .44 * fta - o.orb + o.tov };
+}
 function applyEntry(m, e, sign) {
+  if (e.ox) { m.ox = m.ox || QS.map(blankOx); m.ox[e.q][e.ox] = Math.max(0, (m.ox[e.q][e.ox] || 0) + sign); }
   (e.changes || []).forEach(([pid, delta]) => {
     const v = m.stats[pid] && m.stats[pid][e.q];
     if (!v) return;
