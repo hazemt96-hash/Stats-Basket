@@ -142,10 +142,10 @@ function infoSheet(key, ctx) {
 }
 
 /* ================= ÉCRANS PRINCIPAUX ================= */
-const clubLogo = () => "";
+const clubLogo = cls => `<img class="${cls}" src="logo.png" alt="" onerror="this.style.visibility='hidden'">`;
 function appbar() {
   const tm = team(), lvl = tm ? teamSeason(tm, ui.season).level : "";
-  return `<header class="appbar"><button class="teampick" data-a="teampick">${tm ? esc(tm.name) : t("Choisir une équipe")}</button><span class="mid">${esc(ui.season)}${lvl ? `<b>${esc(lvl)}</b>` : ""}</span>${clubLogo("clublogo")}</header>`;
+  return `<header class="appbar"><span class="lefthead"><button class="teampick" data-a="teampick">${tm ? esc(tm.name) : t("Choisir une équipe")}</button></span><span class="mid">${esc(ui.season)}${lvl ? `<b>${esc(lvl)}</b>` : ""}</span>${clubLogo("clublogo")}</header>`;
 }
 function tabbar() {
   return `<nav class="tabbar">${TABS.map(k => `<button data-a="tab" data-n="${k}"${ui.view === k ? ' aria-current="page"' : ""}><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>${t(TAB_NAMES[k])}</button>`).join("")}</nav>`;
@@ -495,10 +495,19 @@ function vNewMatch() {
   <button class="btn main big" data-a="savematch">${editing ? t("Enregistrer") : t("Créer le match")}</button>`;
 }
 function pnav(n) {
-  const l = ui.plist || [], i = l.indexOf(ui.playerId);
+  const edit = ui.view === "editplayer", cur = edit ? ui.editPlayer : ui.playerId;
+  const l = ui.plist || [], i = l.indexOf(cur);
   if (l.length < 2 || i < 0) return;
-  ui.playerId = l[(i + n + l.length) % l.length];
-  window.scrollTo(0, 0); render();
+  const next = l[(i + n + l.length) % l.length];
+  const move = () => { ui.playerId = next; if (edit) { ui.editPlayer = next; ui.form = {}; ui.photo = undefined; } window.scrollTo(0, 0); render(); };
+  if (edit && editDirty()) { confirmBox(t("Enregistrer les modifications avant de passer au joueur suivant ?"), () => { if (savePlayer(true)) move(); }, t("Enregistrer")); return; }
+  move();
+}
+function editDirty() {
+  keepForm();
+  const p = playerById(ui.editPlayer), f = ui.form;
+  if (!p) return false;
+  return (f.first != null && f.first.trim() !== p.first) || (f.last != null && f.last.trim() !== p.last) || (f.nick != null && f.nick.trim() !== (p.nick || "")) || (f.sex && f.sex !== p.sex) || (f.pos && f.pos.join() !== (p.pos || []).join()) || ui.photo !== undefined;
 }
 /* Glisser à gauche ou à droite sur la fiche pour changer de joueur */
 let swipe0 = null;
@@ -1211,15 +1220,16 @@ function readPhoto(file) {
 function keepForm() {
   [["pf", "first"], ["pl", "last"], ["pn", "nick"]].forEach(([id, k]) => { const e = document.getElementById(id); if (e) ui.form[k] = e.value; });
 }
-function savePlayer() {
+function savePlayer(stay) {
+  if (stay !== true) stay = false;
   keepForm();
   const first = (ui.form.first || "").trim(), last = (ui.form.last || "").trim();
-  if (!first || !last) { toast(t("Indique le prénom et le nom")); return; }
+  if (!first || !last) { toast(t("Indique le prénom et le nom")); return false; }
   let p = ui.editPlayer ? db.players.find(x => x.id === ui.editPlayer) : null;
-  if (!p && db.players.some(x => low(x.first) === low(first) && low(x.last) === low(last))) { toast(t("Ce joueur existe déjà dans le club : ajoute-le depuis « Ajouter du club »")); return; }
+  if (!p && db.players.some(x => low(x.first) === low(first) && low(x.last) === low(last))) { toast(t("Ce joueur existe déjà dans le club : ajoute-le depuis « Ajouter du club »")); return false; }
   const newSex = ui.form.sex || (p && p.sex) || (team() || {}).cat || "F";
-  if (!ui.editPlayer && ui.form.toTeam && team() && team().cat && newSex !== team().cat) { toast(t("{t} est une équipe {c} : choisis la bonne catégorie.", { t: team().name, c: catName(team().cat) })); return; }
-  if (p) { const bad = teamsOfPlayer(p.id).find(x => x.cat && x.cat !== newSex); if (bad) { toast(t("Impossible : {n} joue dans {t}, une équipe {c}.", { n: p.first, t: bad.name, c: catName(bad.cat) })); return; } }
+  if (!ui.editPlayer && ui.form.toTeam && team() && team().cat && newSex !== team().cat) { toast(t("{t} est une équipe {c} : choisis la bonne catégorie.", { t: team().name, c: catName(team().cat) })); return false; }
+  if (p) { const bad = teamsOfPlayer(p.id).find(x => x.cat && x.cat !== newSex); if (bad) { toast(t("Impossible : {n} joue dans {t}, une équipe {c}.", { n: p.first, t: bad.name, c: catName(bad.cat) })); return false; } }
   if (!p) { p = { id: uid(), first, last, pos: [], sex: "F", photo: "" }; db.players.push(p); }
   p.first = first; p.last = last;
   const nick = (ui.form.nick ?? p.nick ?? "").trim();
@@ -1232,7 +1242,9 @@ function savePlayer() {
     if (!ts.players.includes(p.id)) ts.players.push(p.id);
   }
   ui.form = {}; ui.photo = undefined;
-  save(); back(); toast(t("Joueur enregistré"));
+  save(); toast(t("Joueur enregistré"));
+  if (stay) return true;
+  back(); return true;
 }
 
 /* ---------- Préparer la saison ---------- */
@@ -1386,10 +1398,10 @@ function render() {
   else if (TABS.includes(ui.view)) {
     if (!team() && db.teams.length) pickDefaultTeam();
     const body = { matchs: vMatchs, saison: vSaison, effectif: vEffectif, reglages: vReglages }[ui.view]();
-    html = `<div class="app">${ui.view === "reglages" ? `<header class="appbar"><span class="teampick" style="pointer-events:none">${t("Réglages")}</span><span class="mid"></span>${clubLogo("clublogo")}</header>` : appbar()}<main class="screen">${body}</main>${tabbar()}</div>`;
+    html = `<div class="app">${ui.view === "reglages" ? `<header class="appbar"><span class="lefthead"><span class="teampick" style="pointer-events:none">${t("Réglages")}</span></span><span class="mid"></span>${clubLogo("clublogo")}</header>` : appbar()}<main class="screen">${body}</main>${tabbar()}</div>`;
   } else {
     const fn = SUBVIEWS[ui.view] || vMatchs;
-    html = `<div class="app" style="grid-template-rows:auto 1fr"><header class="subbar"><button class="back" data-a="back">‹ ${t("Retour")}</button>${ui.view === "player" && (ui.plist || []).length > 1 ? `<span class="pnav"><button data-a="pnav" data-n="-1" aria-label="${t("Joueur précédent")}">‹</button><span>${ui.plist.indexOf(ui.playerId) + 1}/${ui.plist.length}</span><button data-a="pnav" data-n="1" aria-label="${t("Joueur suivant")}">›</button></span>` : ""}</header><main class="screen">${fn()}</main></div>`;
+    html = `<div class="app" style="grid-template-rows:auto 1fr"><header class="subbar"><button class="back" data-a="back">‹ ${t("Retour")}</button>${(ui.view === "player" || (ui.view === "editplayer" && ui.editPlayer && (ui.plist || []).includes(ui.editPlayer))) && (ui.plist || []).length > 1 ? `<span class="pnav"><button data-a="pnav" data-n="-1" aria-label="${t("Joueur précédent")}">‹</button><span>${ui.plist.indexOf(ui.view === "player" ? ui.playerId : ui.editPlayer) + 1}/${ui.plist.length}</span><button data-a="pnav" data-n="1" aria-label="${t("Joueur suivant")}">›</button></span>` : ""}</header><main class="screen">${fn()}</main></div>`;
   }
   if (ui.sheet) {
     const inner = ui.sheet.type === "info" ? infoSheet(ui.sheet.key, ui.sheet.ctx) : ui.sheet.type === "menu" ? menuSheet() : ui.sheet.type === "quarters" ? quartersSheet() : ui.sheet.type === "teampick" ? teamPickSheet() : ui.sheet.type === "oppno" ? oppNoSheet() : "";
@@ -1588,22 +1600,32 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if
 setInterval(() => { if (ui.view === "match" && ui.readonly) updateClocks(); }, 1000);
 window.addEventListener("online", () => { if (CLOUD && cloud.member) push(); });
 
-/* Ouverture : le logo du club glisse et rétrécit jusqu'à sa place en haut à droite */
+/* Ouverture : le logo du club s'affiche au centre, puis glisse et rétrécit jusqu'au coin en haut à droite.
+   On attend que l'écran principal soit affiché (connexion au club comprise) pour viser la bonne place. */
 function splashOut() {
   const sp = document.getElementById("splash");
   if (!sp) return;
-  const img = sp.querySelector("img"), target = document.querySelector(".appbar .clublogo") || document.querySelector(".gatelogo");
+  const t0 = Date.now(), reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const end = () => { document.body.classList.remove("splashing"); sp.remove(); };
-  if (!img || !target || !img.complete || !target.complete || !target.offsetHeight || matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    sp.classList.add("out"); setTimeout(end, 450); return;
-  }
-  const a = img.getBoundingClientRect(), b = target.getBoundingClientRect();
-  const dx = b.left + b.width / 2 - (a.left + a.width / 2), dy = b.top + b.height / 2 - (a.top + a.height / 2), k = b.height / a.height;
-  sp.classList.add("fly");
-  img.style.transform = `translate(${dx}px, ${dy}px) scale(${k})`;
-  setTimeout(end, 820);
+  const fade = () => { sp.classList.add("out"); setTimeout(end, 450); };
+  const tryFly = () => {
+    const img = sp.querySelector("img"), target = document.querySelector(".appbar .clublogo");
+    const ready = img && img.complete && target && target.complete && target.offsetHeight;
+    const gate = !document.querySelector(".appbar") && (!CLOUD || cloud.ready);
+    if (!ready) { if (!gate && Date.now() - t0 < 3500) return setTimeout(tryFly, 120); return fade(); }
+    if (reduce) return fade();
+    const a = img.getBoundingClientRect(), b = target.getBoundingClientRect();
+    const dx = b.left + b.width / 2 - (a.left + a.width / 2), dy = b.top + b.height / 2 - (a.top + a.height / 2), k = b.height / a.height;
+    sp.classList.add("fly");
+    const anim = img.animate([{ transform: "translate(0, 0) scale(1)" }, { transform: `translate(${dx}px, ${dy}px) scale(${k})` }], { duration: 750, easing: "cubic-bezier(.6, 0, .2, 1)", fill: "forwards" });
+    anim.onfinish = end;
+    setTimeout(end, 1200);
+  };
+  tryFly();
 }
 function boot() {
+  document.body.classList.add("splashing");
+  setTimeout(splashOut, 1000);
   pickDefaultTeam();
   initCloud();
   render();

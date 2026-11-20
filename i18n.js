@@ -11,6 +11,7 @@ const POSITIONS = {
   es: [["B", "Base"], ["E", "Escolta"], ["A", "Alero"], ["AP", "Ala-pívot"], ["P", "Pívot"]],
 };
 const RAW = [
+["Enregistrer les modifications avant de passer au joueur suivant ?", "Save changes before moving to the next player?", "¿Guardar los cambios antes de pasar al siguiente jugador?"],
 ["adv. {n}", "opp. {n}", "riv. {n}"], ["Bonus", "Bonus", "Bonus"], ["Avancée", "Advanced", "Avanzada"], ["+ n° de la joueuse", "+ player number", "+ dorsal de la jugadora"],
 ["Faute adverse", "Opponent foul", "Falta rival"], ["{x} : quel numéro ?", "{x}: which number?", "{x}: ¿qué dorsal?"], ["Numéro", "Number", "Dorsal"], ["Passer", "Skip", "Omitir"],
 ["Les numéros déjà vus restent proposés. « Passer » enregistre sans numéro.", "Numbers already seen stay listed. \"Skip\" records without a number.", "Los dorsales ya vistos siguen propuestos. «Omitir» anota sin dorsal."],

@@ -339,13 +339,17 @@ tbody tr[data-a] { cursor: pointer; }
 
 .appbar .mid { justify-self: center; display: flex; flex-direction: column; align-items: center; font-size: 12px; color: var(--muted); line-height: 1.2; white-space: nowrap; }
 .appbar .mid b { font-size: 14px; color: var(--text); font-family: var(--display); }
-.clublogo { justify-self: end; height: 36px; width: auto; max-width: 64px; object-fit: contain; }
+.lefthead { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lefthead .teampick { min-width: 0; font-size: 18px; }
+.lefthead .teampick::after { font-size: 13px; }
+.clublogo { height: 32px; width: 32px; flex: none; object-fit: contain; justify-self: end; }
+.lefthead { gap: 6px; }
 .gatelogo { display: block; height: 96px; width: auto; max-width: 60%; object-fit: contain; margin: 0 auto 8px; }
 #splash { position: fixed; inset: 0; z-index: 50; background-color: var(--bg, #fff); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; transition: opacity .4s; }
 #splash img { width: 46vw; max-width: 220px; height: auto; }
 #splash b { font-family: var(--display, sans-serif); font-size: 24px; color: var(--text, #111); }
 #splash.out { opacity: 0; pointer-events: none; }
-#splash img { transition: transform .8s cubic-bezier(.65, 0, .25, 1); transform-origin: center; }
+#splash img { transform-origin: center; will-change: transform; }
 #splash b { transition: opacity .3s; }
 #splash.fly { background: transparent; pointer-events: none; transition: background-color .55s ease .1s; }
 #splash.fly b { opacity: 0; }
@@ -451,3 +455,5 @@ table.p40 tr.strong td { font-weight: 700; }
 .nopad button small { font-size: 11px; font-weight: 600; color: var(--muted); }
 .nopad .add { background: none; border: 1.5px dashed var(--line); font-size: 15px; color: var(--muted); }
 .nopad .skip { background: none; border: 1.5px solid var(--line); font-size: 13px; color: var(--muted); }
+.lefthead span.teampick::after { content: none; }
+@media (max-width: 380px) { .lefthead .teampick { font-size: 17px; } }
